@@ -1,0 +1,27 @@
+{
+  "name": "apex-mocks",
+  "version": "1.0.0",
+  "description": "Yes hello",
+  "main": "index.js",
+  "scripts": {
+    "dmc": "dmc",
+    "deploy": "gulp",
+    "test": "dmc test"
+  },
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "author": "james.simone",
+  "license": "ISC",
+  "devDependencies": {
+    "del": "5.1.0",
+    "dmc": "https://github.com/jamessimone/dmc",
+    "dotenv": "8.2.0",
+    "gulp": "4.0.2",
+    "gulp-debug": "4.0.0",
+    "gulp-jsforce-deploy": "1.1.2",
+    "gulp-zip": "5.0.1",
+    "jsforce": "1.9.3"
+  }
+}
