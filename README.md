@@ -1,4 +1,23 @@
-# FFLib Versus CrudMock practical testing
+# ApexMocks Testing Library: The Repository Pattern
+
+Hello! If you've arrived here via [The Repository Pattern](https://www.jamessimone.net/blog/the-joys-of-apex/repository-pattern), you'll note that the Readme is slightly different from the Master branch of this repository. At its core, the Apex Mocks library uses 3 basic concepts to supercharge your Apex test results and empower you to easily do true unit testing within Apex:
+
+- the use of IoC / Dependency Injection via the [Factory Pattern](https://www.jamessimone.net/blog/joys-of-apex/dependency-injection-factory-pattern)
+- the use of [DML (data manipulation language) mocking](https://www.jamessimone.net/blog/joys-of-apex/mocking-dml) for SObject creation / updating / upserting / deleting / undeleting
+- the use of the Repository Pattern to replace raw SOQL in your Salesforce.com code
+
+This repository also contains the FFLib library classes in order to perform the stress tests I've detailed below, which can make scrolling through the class list a bit tedious. The relevant classes that you'll want to look at in this branch I've listed below:
+
+- Factory
+- IRepository
+- Repository
+- Repository_Tests
+- Query
+- Query_Tests
+- RepoFactory
+- RepoFactoryMocks
+
+Thanks for visting and perusing the code. Without further ado, the primary (Master branch) introduction to the Apex Mocks library is presented below:
 
 ## Introduction
 
@@ -8,7 +27,7 @@ FFLib was [publicized with some fanfare way back in 2014](https://code4cloud.wor
 
 But is this claim ... true?
 
-It was suggested on Reddit following the publication of my second blog post on [The Joys Of Apex](https://jamessimone.net/blog/) that I was "[doing it wrong](https://www.reddit.com/r/salesforce/comments/egrw71/the_joys_of_apex_mocking_dml_operations/)." I thought a lot about what [u/moose04](https://www.reddit.com/user/moose04/) was saying - perhaps it had been premature of me to dismiss what I saw as the same "creep spread" and Java boilerplate that I wasn't crazy about when I considered the merits of the built-in Salesforce stubbing methods. To be clear - it's still possible for that to be the case. That said, Salesforce is a platform that (I believe) thrives on the ability for developers to quickly test and iterate through theories. Why not use the very same platform we were discussing to stress test my implementation against the FFLib library?
+It was suggested on Reddit following the publication of my second blog post on [The Joys Of Apex](https://jamessimone.net/blog/the-joys-of-apex) that I was "[doing it wrong](https://www.reddit.com/r/salesforce/comments/egrw71/the_joys_of_apex_mocking_dml_operations/)." I thought a lot about what [u/moose04](https://www.reddit.com/user/moose04/) was saying - perhaps it had been premature of me to dismiss what I saw as the same "creep spread" and Java boilerplate that I wasn't crazy about when I considered the merits of the built-in Salesforce stubbing methods. To be clear - it's still possible for that to be the case. That said, Salesforce is a platform that (I believe) thrives on the ability for developers to quickly test and iterate through theories. Why not use the very same platform we were discussing to stress test my implementation against the FFLib library?
 
 ## My methodology
 
