@@ -1,4 +1,22 @@
-# FFLib Versus CrudMock practical testing
+# Future Methods, Callouts & Callbacks - Apex Mocks
+
+This code is from [the article discussing Apex future methods, callouts, and callbacks](https://www.jamessimone.net/blog/joys-of-apex/future-method-callout-callback/) in the ongoing Joys of Apex series. The following classes are part of this section:
+
+- Callout
+- Callback
+- Callback_Tests
+- HttpCallout
+- HttpCallout_Tests
+- RestMethod (enum class)
+- TypeUtils
+
+Because Callout is a simple wrapper, and HttpCallout becomes your one-stop-shop for API usage, you unlock a lot of power in your codebase by implementing these classes to do async work. Most of your time can be spent extending the Callback class for discrete use-cases, and testing just those classes. Callback could be easily extended, for example, to be an abstract class whose execute and callback methods ended up wrapping the Queueable interface _or_ the Batchable interface.
+
+## Notes
+
+There's an interesting Apex error that one encounters while trying to pass a `System.Type` to an object that is serialized - in this case, the Callout class. Despite the fact that Queueable classes in Apex are _also_ serialized when `System.enqueueJob` is called, the classic `Json.serialize` method is not Type-safe, for whatever reason. Luckily, both the Callout constructor and the Callback constructor can be kept typesafe by only initializing the class name string within the Callout class and then immediately constructing the Type again from the class name within the HttpCallout class.
+
+The below is the Readme from the master branch, explaining a little bit more about how this library came to be:
 
 ## Introduction
 

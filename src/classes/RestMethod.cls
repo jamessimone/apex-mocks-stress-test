@@ -1,0 +1,1 @@
+public enum RestMethod { GET, PATCH, POST, PUT }
