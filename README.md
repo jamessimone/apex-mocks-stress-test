@@ -1,4 +1,12 @@
-# FFLib Versus CrudMock practical testing
+# Performant Apex Tests
+
+Based off of the connected post on my blog, [Writing Performant Apex Tests](https://www.jamessimone.net/blog/joys-of-apex/writing-performant-apex-tests). Relevant classes in this branch:
+
+- ExceptTesting.cls
+- ListIterator.cls
+- LoopTests.cls
+
+Otherwise, I invite you to read along for the official intro to the master branch of this repo, which includes more details on the use of the CrudMock class and mock DML structure that I recommend:
 
 ## Introduction
 
