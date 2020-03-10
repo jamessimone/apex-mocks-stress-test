@@ -32,4 +32,9 @@ public virtual class Factory {
             return this;
         }
     }
+
+    @testVisible
+    private static void useMocks() {
+        factory = getFactory().withMocks;
+    }
 }

@@ -4,11 +4,19 @@ public class RepoFactoryMock extends RepoFactory {
     @testVisible
     private static List<Query> QueriesMade = new List<Query>();
 
+    public override IRepository getAccountRepo() {
+        return this.getRepository(super.getAccountRepo(), Account.SObjectType);
+    }
+
     public override IRepository getOppLineItemRepo() {
-        List<SObject> queriedResults = this.getResults(OpportunityLineItem.SObjectType);
+        return this.getRepository(super.getOppLineItemRepo(), OpportunityLineItem.SObjectType);
+    }
+
+    private IRepository getRepository(IRepository repo, Schema.SObjectType sobjType) {
+        List<SObject> queriedResults = this.getResults(sobjType);
         return queriedResults.size() > 0 ?
             new RepoMock(queriedResults) :
-            super.getOppLineItemRepo();
+            repo;
     }
 
     private List<SObject> getResults(SObjectType sobjType) {

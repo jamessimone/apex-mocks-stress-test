@@ -9,4 +9,8 @@ public abstract class TypeUtils {
     public static Object create(String objectName) {
         return Type.forName(objectName).newInstance();
     }
+
+    public static String getClassName(Object that) {
+        return String.valueOf(that).split(':')[0];
+    }
 }
