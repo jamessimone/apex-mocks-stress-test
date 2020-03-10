@@ -1,4 +1,11 @@
 public virtual class RepoFactory {
+    public virtual IRepository getAccountRepo() {
+        List<SObjectField> queryFields = new List<SObjectField>{
+            Account.Name
+        };
+        return new Repository(Account.SObjectType, queryFields);
+    }
+
     public virtual IRepository getOppRepo() {
         List<SObjectField> queryFields = new List<SObjectField>{
             Opportunity.IsWon,

@@ -1,4 +1,20 @@
-# ApexMocks Testing Library: The Repository Pattern
+# ApexMocks Testing Library: Dynamic Extendable APIs
+
+Hello! If you've arrived here via [Extendable APIs](https://www.jamessimone.net/blog/the-joys-of-apex/extendable-apis), you'll note that the Readme is slightly different from the Master branch of this repository. It's also branched off of the [Repository branch](https://github.com/jamessimone/apex-mocks-stress-test/tree/repository), whose Readme section is also below.
+
+Relevant classes for your perusal:
+
+- [Api](https://github.com/jamessimone/apex-mocks-stress-test/blob/dynamic-apis/src/classes/Api.cls)
+- [ApiHandlerAccount](https://github.com/jamessimone/apex-mocks-stress-test/blob/dynamic-apis/src/classes/ApiHandlerAccount.cls)
+- [ApiHandlerAccountTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/dynamic-apis/src/classes/ApiHandlerAccountTests.cls)
+- [ApiRequestResolver](https://github.com/jamessimone/apex-mocks-stress-test/blob/dynamic-apis/src/classes/ApiRequestResolver.cls)
+- [ApiRequestResolverTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/dynamic-apis/src/classes/ApiRequestResolverTests.cls)
+- [ApiService](https://github.com/jamessimone/apex-mocks-stress-test/blob/dynamic-apis/src/classes/ApiService.cls)
+- [ApiServiceTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/dynamic-apis/src/classes/ApiServiceTests.cls)
+
+Thanks for taking the time to check out this [Joys Of Apex](https://www.jamessimone.net/blog/joys-of-apex/) post -- I hope it's one you enjoyed. The readme for the Repository branch follows:
+
+## ApexMocks Testing Library: The Repository Pattern
 
 Hello! If you've arrived here via [The Repository Pattern](https://www.jamessimone.net/blog/the-joys-of-apex/repository-pattern), you'll note that the Readme is slightly different from the Master branch of this repository. At its core, the Apex Mocks library uses 3 basic concepts to supercharge your Apex test results and empower you to easily do true unit testing within Apex:
 

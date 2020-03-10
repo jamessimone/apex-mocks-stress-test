@@ -8,9 +8,9 @@ public class Query {
         GREATER_THAN_OR_EQUAL
     }
 
-    private final SObjectField field;
-    private final Operator operator;
-    private final List<Object> predicates;
+    @testVisible private final SObjectField field;
+    @testVisible private final Operator operator;
+    @testVisible private final List<Object> predicates;
 
     private static Boolean isSet = false;
     private static final String EMPTY = '\'\'';
