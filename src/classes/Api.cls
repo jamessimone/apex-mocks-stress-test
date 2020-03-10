@@ -23,30 +23,29 @@ global abstract class Api {
     }
 
     public class Facade {
-
         private Facade() { }
 
-        public Api.Response doDelete(ApiRequestResolver resolver) {
+        public Response doDelete(ApiRequestResolver resolver) {
             return this.getHandler(resolver).doDelete(resolver);
         }
 
-        public Api.Response doGet(ApiRequestResolver resolver) {
+        public Response doGet(ApiRequestResolver resolver) {
             return this.getHandler(resolver).doGet(resolver);
         }
 
-        public Api.Response doPatch(ApiRequestResolver resolver) {
+        public Response doPatch(ApiRequestResolver resolver) {
             return this.getHandler(resolver).doPatch(resolver);
         }
 
-        public Api.Response doPost(ApiRequestResolver resolver) {
+        public Response doPost(ApiRequestResolver resolver) {
             return this.getHandler(resolver).doPost(resolver);
         }
 
-        public Api.Response doPut(ApiRequestResolver resolver) {
+        public Response doPut(ApiRequestResolver resolver) {
             return this.getHandler(resolver).doPut(resolver);
         }
 
-        public Api.Handler getHandler(ApiRequestResolver resolver) {
+        public Handler getHandler(ApiRequestResolver resolver) {
             Type handlerType = Type.forName(Api.HANDLER_NAME + resolver.ApiName);
             return handlerType != null ? (Api.Handler)handlerType.newInstance() : new Api.Handler();
         }
