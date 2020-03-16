@@ -1,0 +1,14 @@
+<template>
+    <template if:true={faqs.data}>
+        <template for:each={faqs.data} for:item="faq">
+            <a href="#" key={faq.key} onclick={handleClick} value={faq.key}>
+                {faq.question}
+            </a>
+            <lightning-layout if:true={faq.isExpanded} key={faq.answer}>
+                <small>
+                    <p>{faq.answer}</p>
+                </small>
+            </lightning-layout>
+        </template>
+    </template>
+</template>

@@ -1,4 +1,16 @@
-# FFLib Versus CrudMock practical testing
+# Apex Mocks: Lightning Web Components
+
+This branch is associated with my post on [comparing/contrasting React/LWC performance](https://www.jamessimone.net/blog/joys-of-apex/react-versus-lightning-web-components). Relevant files for you to peruse:
+
+-   [FAQController](https://github.com/jamessimone/apex-mocks-stress-test/blob/lwc-react-comparison/sfdx/main/default/classes/FAQController.cls)
+-   [FAQ HTML template](https://github.com/jamessimone/apex-mocks-stress-test/blob/lwc-react-comparison/sfdx/main/default/lwc/faq/faq.html)
+-   [FAQ JS controller](https://github.com/jamessimone/apex-mocks-stress-test/blob/lwc-react-comparison/sfdx/main/default/lwc/faq/faq.js)
+-   [FAQ tests](https://github.com/jamessimone/apex-mocks-stress-test/blob/lwc-react-comparison/sfdx/main/default/lwc/faq/__tests__/faq.test.js)
+-   [ApiRequestResolverTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/lwc-react-comparison/src/classes/ApiRequestResolverTests.cls)
+
+Without further ado, the readme from the Master branch:
+
+## FFLib Versus CrudMock practical testing
 
 ## Introduction
 
@@ -8,7 +20,7 @@ FFLib was [publicized with some fanfare way back in 2014](https://code4cloud.wor
 
 But is this claim ... true?
 
-It was suggested on Reddit following the publication of my second blog post on [The Joys Of Apex](https://jamessimone.net/blog/) that I was "[doing it wrong](https://www.reddit.com/r/salesforce/comments/egrw71/the_joys_of_apex_mocking_dml_operations/)." I thought a lot about what [u/moose04](https://www.reddit.com/user/moose04/) was saying - perhaps it had been premature of me to dismiss what I saw as the same "creep spread" and Java boilerplate that I wasn't crazy about when I considered the merits of the built-in Salesforce stubbing methods. To be clear - it's still possible for that to be the case. That said, Salesforce is a platform that (I believe) thrives on the ability for developers to quickly test and iterate through theories. Why not use the very same platform we were discussing to stress test my implementation against the FFLib library?
+It was suggested on Reddit following the publication of my second blog post on [The Joys Of Apex](https://jamessimone.net/blog/joys-of-apex) that I was "[doing it wrong](https://www.reddit.com/r/salesforce/comments/egrw71/the_joys_of_apex_mocking_dml_operations/)." I thought a lot about what [u/moose04](https://www.reddit.com/user/moose04/) was saying - perhaps it had been premature of me to dismiss what I saw as the same "creep spread" and Java boilerplate that I wasn't crazy about when I considered the merits of the built-in Salesforce stubbing methods. To be clear - it's still possible for that to be the case. That said, Salesforce is a platform that (I believe) thrives on the ability for developers to quickly test and iterate through theories. Why not use the very same platform we were discussing to stress test my implementation against the FFLib library?
 
 ## My methodology
 
@@ -25,8 +37,8 @@ It was suggested on Reddit following the publication of my second blog post on [
 
 I wasn't sure what to expect when writing the stress tests. I wanted to choose deliberately long-running operations to simulate what somebody could expect for:
 
-- CPU intensive transactions, particularly those involving complicated calculations
-- Batch processes / queueable tasks which process large numbers of records (which I would hazard to say is a fairly common use-case in the SFDC ecosystem).
+-   CPU intensive transactions, particularly those involving complicated calculations
+-   Batch processes / queueable tasks which process large numbers of records (which I would hazard to say is a fairly common use-case in the SFDC ecosystem).
 
 Here's what I found (note - I ran the tests ten times before taking this screenshot):
 
@@ -107,10 +119,10 @@ The only time I successfully observed the CrudMock singleton test failing was wh
 
 Of course, it isn't reasonable to expect that these tests are exactly mirroring testing conditions. What is reasonable to expect is that the more complicated your test setup, the longer things are going to take using the FFLib library. The reason for that is simple - their mocks / stubs utilize deep call stacks:
 
-- handleMethodCall
-- mockNonVoidMethod
-- recordMethod
-- recordMethod again (overloaded)
+-   handleMethodCall
+-   mockNonVoidMethod
+-   recordMethod
+-   recordMethod again (overloaded)
 
 That's just for an absurdly simple mocking setup, mocking one method. Again, the more you need to utilize mocking in your tests (particularly if you are testing objects passing through multiple handlers / triggers), the greater the overhead of the library on influencing your overall test time will be.
 

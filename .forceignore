@@ -1,0 +1,9 @@
+src/package.xml
+**appMenu
+**appSwitcher
+**objectTranslations
+**profiles
+**settings
+**/jsconfig.json
+**/.eslintrc.json
+**/__tests__/**

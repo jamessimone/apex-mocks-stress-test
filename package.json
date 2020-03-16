@@ -4,7 +4,7 @@
   "description": "Salesforce.com (SFDC) Apex mocking library comparison for unit tests",
   "main": "index.js",
   "scripts": {
-    "test": "sh test.sh"
+    "test": "sfdx-lwc-jest"
   },
   "repository": {
     "type": "git",

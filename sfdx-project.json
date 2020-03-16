@@ -1,13 +1,21 @@
 {
-  "packageDirectories": [
-    {
-      "path": "src",
-      "default": true,
-      "package": "ApexMocks",
-      "versionName": "0.1",
-      "versionNumber": "0.1.0.NEXT"
-    }
-  ],
-  "namespace": "",
-  "sfdcLoginUrl": "https://login.salesforce.com"
+    "packageDirectories": [
+        {
+            "path": "src",
+            "default": true,
+            "package": "ApexMocks",
+            "versionName": "0.1",
+            "versionNumber": "0.1.0.NEXT",
+            "namespace": ""
+        },
+        {
+            "namespace": "",
+            "path": "sfdx",
+            "default": true,
+            "package": "SFDX Apex Mocks",
+            "versionNumber": "1.0.0"
+        }
+    ],
+    "sourceApiVersion": "48.0",
+    "sfdcLoginUrl": "https://login.salesforce.com"
 }
