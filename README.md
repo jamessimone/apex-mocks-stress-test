@@ -6,7 +6,6 @@ This branch is associated with my post on [comparing/contrasting React/LWC perfo
 -   [FAQ HTML template](https://github.com/jamessimone/apex-mocks-stress-test/blob/lwc-react-comparison/sfdx/main/default/lwc/faq/faq.html)
 -   [FAQ JS controller](https://github.com/jamessimone/apex-mocks-stress-test/blob/lwc-react-comparison/sfdx/main/default/lwc/faq/faq.js)
 -   [FAQ tests](https://github.com/jamessimone/apex-mocks-stress-test/blob/lwc-react-comparison/sfdx/main/default/lwc/faq/__tests__/faq.test.js)
--   [ApiRequestResolverTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/lwc-react-comparison/src/classes/ApiRequestResolverTests.cls)
 
 Without further ado, the readme from the Master branch:
 
