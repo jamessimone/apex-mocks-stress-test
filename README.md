@@ -1,4 +1,18 @@
-# FFLib Versus CrudMock practical testing
+# Object-Oriented Basics
+
+If you're reading this, it's likely you arrived at this repository by means of the [Joys Of Apex: Object-Oriented Basics](https://www.jamessimone.net/blog/joys-of-apex/apex-object-oriented-basics) post. Thanks for following along with the code, and I hope you enjoy the use of this resource as well.
+
+Key files to inspect from the **Object-Oriented Basics** post:
+
+- [IDealBreaker](https://github.com/jamessimone/apex-mocks-stress-test/blob/object-oriented-basics/src/classes/IDealBreaker.cls)
+- [ISpecialDealBreaker](https://github.com/jamessimone/apex-mocks-stress-test/blob/object-oriented-basics/src/classes/ISpecialDealBreaker.cls)
+- [IPerson](https://github.com/jamessimone/apex-mocks-stress-test/blob/object-oriented-basics/src/classes/IPerson.cls)
+- [Person](https://github.com/jamessimone/apex-mocks-stress-test/blob/object-oriented-basics/src/classes/Person.cls)
+- [PersonTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/object-oriented-basics/src/classes/PersonTests.cls)
+
+Those are the basics for this post. In the meantime, I would encourage you to stick around to read the full Readme from the Master branch:
+
+## FFLib Versus CrudMock practical testing
 
 ## Introduction
 

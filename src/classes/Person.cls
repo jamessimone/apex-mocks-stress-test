@@ -1,10 +1,10 @@
 public abstract class Person implements IPerson {
 
-    private final SObject person;
+    protected final SObject person;
     //notice the use of the protected keyword
     //this means that only classes inheriting from
     //this class have the use of this constructor
-    //you can also make methods protected
+    //you can also make methods/properties protected
     protected Person(SObject person) {
       this.person = person;
     }
@@ -46,10 +46,8 @@ public abstract class Person implements IPerson {
     }
 
     private virtual class LeadPerson extends Person {
-      protected final Lead lead;
       protected LeadPerson(SObject lead) {
         super(lead);
-        this.lead = (Lead)lead;
       }
     }
 
@@ -82,8 +80,9 @@ public abstract class Person implements IPerson {
 
         public Boolean isVIPLead() {
             //use of the ternary to make this operation always safe
-            List<String> descriptionWords = this.lead.Description != null ?
-             this.lead.Description.split(' ') :
+            Lead lead = (Lead)this.person;
+            List<String> descriptionWords = lead.Description != null ?
+             lead.Description.split(' ') :
              new List<String>();
             Boolean hasMatch = false;
             for(String descriptionWord : descriptionWords) {
