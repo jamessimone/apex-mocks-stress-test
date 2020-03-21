@@ -1,4 +1,5 @@
 public virtual class Crud implements ICrud {
+    public static Boolean SORT_CHUNKS = false;
     @testVisible private static Integer MAX_DML_CHUNKING = 10;
 
     public virtual SObject doInsert(SObject record) { return this.doInsert(new List<SObject>{record})[0];}
@@ -53,8 +54,8 @@ public virtual class Crud implements ICrud {
 
     private void sortToPreventChunkingErrors(List<SObject> records) {
         //prevents a chunking error that can occur if SObject types are in the list out of order.
-        //no need to sort if the list size is below the limit
-        if(records.size() >= MAX_DML_CHUNKING) {
+        //no need to sort if the list size is below the limit\
+        if(SORT_CHUNKS && records.size() >= MAX_DML_CHUNKING) {
             records.sort();
         }
     }
