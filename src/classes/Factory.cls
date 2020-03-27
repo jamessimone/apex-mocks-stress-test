@@ -1,12 +1,10 @@
 public virtual class Factory {
-    public ICrud Crud { get; private set; }
     public RepoFactory RepoFactory { get; private set;}
 
     private static Factory factory;
 
     @testVisible
     protected Factory() {
-        this.Crud = new Crud();
         this.RepoFactory = new RepoFactory();
     }
 
@@ -24,10 +22,13 @@ public virtual class Factory {
         return new OpportunityUpdater(this);
     }
 
+    public static void useMocks() {
+        factory = getFactory().withMocks;
+    }
+
     @testVisible
     private Factory withMocks {
         get {
-            this.Crud = new CrudMock();
             this.RepoFactory = new RepoFactoryMock();
             return this;
         }

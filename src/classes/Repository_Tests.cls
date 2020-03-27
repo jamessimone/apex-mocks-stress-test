@@ -46,4 +46,15 @@ private class Repository_Tests {
         System.assertEquals(0, opps.size());
         System.assertEquals(0, Limits.getQueries());
     }
+
+    @isTest
+    static void it_should_return_count_properly() {
+        insert new Account(Name = 'Test');
+        Query nameEqualsTest = new Query(Account.Name, Query.Operator.EQUALS, 'Test');
+        IRepository repo = new Repository(Account.SObjectType, new List<SObjectField>());
+
+        QueryWrapper wrapper = repo.getWrapper(nameEqualsTest);
+
+        System.assertEquals(1, wrapper.ResultSize);
+    }
 }

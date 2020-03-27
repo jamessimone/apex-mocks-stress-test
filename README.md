@@ -1,4 +1,25 @@
-# ApexMocks Testing Library: The Repository Pattern
+# ApexMocks Testing Library: Data Processor Queueable / Batchable Implementation
+
+Hi there. If you're reading this, it's likely you're here after reading the [Data Processor Batchable And Queueable Apex](https://www.jamessimone.net/blog/the-joys-of-apex/batchable-and-queueable-apex) post. I've linked the relevant classes from that post below, followed by the Readme for the Repository Pattern, which this post is based on:
+
+- [DataProcessor](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/DataProcessor.cls)
+- [DataProcessorBatchable](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/DataProcessorBatchable.cls)
+- [DataProcessorQueueable](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/DataProcessorQueueable.cls)
+- [DataProcessorTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/DataProcessorTests.cls)
+- [Factory](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/Factory.cls)
+- [QueryWrapper](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/QueryWrapper.cls)
+- [Repository](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/Repository.cls)
+- [Repository_Tests](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/Repository_Tests.cls)
+
+The `DataProcessor` concept is based off the idea that it should be easier for consumers to hook into bulk Salesforce update paradigms, without having to delve into more advanced (or beginner? 🙄) topics like recursion. Performing bulk operations in Salesforce is now as easy as:
+
+- defining a child class that extends `DataProcessor`
+- overriding the `execute(List<SObject> records)` method with your business logic
+- overriding the `getWrapper()` method with a `QueryWrapper` telling the `DataProcessor` how many records are behind the given Query, and the given Query's `Database.QueryLocator`. There are helper methods in the `Repository` class (and tests in the Repository's tests) that show how easy this is with the use of the larger framework
+
+And now without further ado, the Readme from the Repository branch:
+
+## ApexMocks Testing Library: The Repository Pattern
 
 Hello! If you've arrived here via [The Repository Pattern](https://www.jamessimone.net/blog/the-joys-of-apex/repository-pattern), you'll note that the Readme is slightly different from the Master branch of this repository. At its core, the Apex Mocks library uses 3 basic concepts to supercharge your Apex test results and empower you to easily do true unit testing within Apex:
 

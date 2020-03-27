@@ -24,11 +24,20 @@ public class RepoFactoryMock extends RepoFactory {
     //now, when you reach the point
     //in testing where you need to
     //stub out a specific repo
-    private class RepoMock implements IRepository {
+    private class RepoMock extends CrudMock implements IRepository {
         private final List<SObject> results;
 
         public RepoMock(List<SObject> results) {
             this.results = results;
+        }
+
+        public QueryWrapper getWrapper(Query query) {
+            return this.getWrapper(new List<Query>{ query });
+        }
+
+        public QueryWrapper getWrapper(List<Query> queries) {
+            this.get(queries);
+            return new QueryWrapper(null, this.results.size());
         }
 
         public List<SObject> get(Query query) {
