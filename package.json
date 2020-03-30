@@ -1,22 +1,20 @@
 {
   "name": "apex-mocks",
   "version": "1.0.0",
-  "description": "Yes hello",
+  "description": "Salesforce.com (SFDC) Apex mocking library comparison for unit tests",
   "main": "index.js",
   "scripts": {
-    "dmc": "dmc",
     "deploy": "gulp",
-    "test": "dmc test"
+    "test": "sh test.sh"
   },
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/jamessimone/apex-mocks-stress-test"
   },
   "author": "james.simone",
   "license": "ISC",
   "devDependencies": {
     "del": "5.1.0",
-    "dmc": "https://github.com/jamessimone/dmc",
     "dotenv": "8.2.0",
     "gulp": "4.0.2",
     "gulp-debug": "4.0.0",
