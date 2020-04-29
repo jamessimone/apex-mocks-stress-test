@@ -1,6 +1,6 @@
 # ApexMocks Testing Library: The Repository Pattern
 
-Hello! If you've arrived here via [The Repository Pattern](https://www.jamessimone.net/blog/the-joys-of-apex/repository-pattern), you'll note that the Readme is slightly different from the Master branch of this repository. At its core, the Apex Mocks library uses 3 basic concepts to supercharge your Apex test results and empower you to easily do true unit testing within Apex:
+Hello! If you've arrived here via [The Repository Pattern](https://www.jamessimone.net/blog/joys-of-apex/repository-pattern/), you'll note that the Readme is slightly different from the Master branch of this repository. At its core, the Apex Mocks library uses 3 basic concepts to supercharge your Apex test results and empower you to easily do true unit testing within Apex:
 
 - the use of IoC / Dependency Injection via the [Factory Pattern](https://www.jamessimone.net/blog/joys-of-apex/dependency-injection-factory-pattern)
 - the use of [DML (data manipulation language) mocking](https://www.jamessimone.net/blog/joys-of-apex/mocking-dml) for SObject creation / updating / upserting / deleting / undeleting
