@@ -64,12 +64,10 @@ public class Repository extends Crud implements IRepository {
     }
 
     private Integer getAggregateResultSize(List<Query> queries) {
-        String countName = 'CountId';
-        String selectClause = 'SELECT Count(Id) ' +  countName;
+        String selectClause = 'SELECT Count()';
         String fromClause = this.getFrom();
         String whereClause = this.addWheres(queries);
 
-        List<AggregateResult> results = this.getFromQuery(selectClause + fromClause + whereClause);
-        return (Integer) results[0].get(countName);
+        return Database.countQuery(selectClause + fromClause + whereClause);
     }
 }
