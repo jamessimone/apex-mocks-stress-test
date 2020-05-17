@@ -4,7 +4,6 @@
   "description": "Salesforce.com (SFDC) Apex mocking library comparison for unit tests",
   "main": "index.js",
   "scripts": {
-    "deploy": "gulp",
     "test": "sh test.sh"
   },
   "repository": {
@@ -14,12 +13,6 @@
   "author": "james.simone",
   "license": "ISC",
   "devDependencies": {
-    "del": "5.1.0",
-    "dotenv": "8.2.0",
-    "gulp": "4.0.2",
-    "gulp-debug": "4.0.0",
-    "gulp-jsforce-deploy": "1.1.2",
-    "gulp-zip": "5.0.1",
-    "jsforce": "1.9.3"
+    "sfdx-cli": "7.58.2"
   }
 }
