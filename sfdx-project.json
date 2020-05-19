@@ -6,6 +6,13 @@
       "package": "ApexMocks",
       "versionName": "0.1",
       "versionNumber": "0.1.0.NEXT"
+    },
+    {
+      "path": "lazyIterator",
+      "default": false,
+      "package": "LazyIterator",
+      "versionName": "0.1",
+      "versionNumber": "0.1.0.NEXT"
     }
   ],
   "namespace": "",
