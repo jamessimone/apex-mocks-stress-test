@@ -40,38 +40,57 @@ export default class CustomPath extends LightningElement {
 
   @wire(getPicklistValues, {
     recordTypeId: '$objectInfo.data.defaultRecordTypeId',
-    fieldApiName: STATUS_FIELD,
-    //this one dirty hack you would never expect ...
-    //in all seriousness, I'm not certain what the "supported"
-    //state is for passing extraneous values to @wire methods;
-    //on the other hand, this is for sure the easiest way to
-    //guarantee order of operations when it comes to wires
-    status: '$_status'
+    fieldApiName: STATUS_FIELD
   })
   leadStatuses({ data, error }) {
     const leadStatusCb = (data) => {
-      data.values.forEach((status) => {
+      const statusSet = new Set();
+      //initial iteration to build unique list
+      data.values.forEach((picklistStatus) => {
+        if (!picklistStatus.label.includes(CLOSED)) {
+          statusSet.add(picklistStatus.label);
+        }
+      });
+      statusSet.add('Closed');
+      this._statuses = Array.from(statusSet);
+
+      //now build the visible/closed statuses
+      data.values.forEach((status, index) => {
         if (status.label.indexOf(CLOSED) > -1) {
           this.closedStatuses.push({
             label: status.label,
             value: status.label
           });
           if (!this.currentClosedStatus) {
+            //promote the first closed value to the component
+            //so that the combobox can show a sensible default
             this.currentClosedStatus = status.label;
           }
         } else {
-          this.visibleStatuses.push(status.label);
+          this.visibleStatuses.push(
+            this._getPathItemFromStatus(status.label, index)
+          );
         }
       });
-      this.visibleStatuses.push(CLOSED);
+      this.visibleStatuses.push(
+        this._getPathItemFromStatus(CLOSED, this.visibleStatuses.length)
+      );
     };
     this._handleWireCallback({ data, error, cb: leadStatusCb });
   }
 
   renderedCallback() {
-    if (!this._hasRendered && this.hasData) {
+    if (!this._hasRendered && this.hasData()) {
       this._hasRendered = true;
       this.showAdvanceButton = true;
+
+      //on the first render, we have to manually set the aria/current values
+      const current =
+        this.visibleStatuses.find(
+          (status) => status.label === this._status
+        )[0] || {};
+      current.class += ' slds-is-current';
+      current.ariaSelected = true;
     }
   }
 
@@ -86,8 +105,9 @@ export default class CustomPath extends LightningElement {
   @track showClosedOptions = false;
   @track currentClosedStatus;
 
-  //short circuit var
+  //truly private fields
   _hasRendered = false;
+  _statuses;
 
   //private methods and getters
   get pathActionIconName() {
@@ -95,7 +115,8 @@ export default class CustomPath extends LightningElement {
   }
 
   hasData() {
-    return this.lead.data && this.leadStatuses.data;
+    //classic
+    return !!(this.lead.data && this.leadStatuses.data);
   }
 
   modalSaveHandler = async (event) => {
@@ -113,6 +134,11 @@ export default class CustomPath extends LightningElement {
     this.advanceButtonText =
       updatedStatusName === this._status ? COMPLETED : 'Mark As Current Status';
     this._storedStatus = updatedStatusName;
+
+    if (this._status !== this._storedStatus) {
+      this._updateVisibleStatuses();
+    }
+
     if (this._storedStatus === CLOSED) {
       this.advanceButtonText = 'Select Closed Status';
       this._storedStatus = this.currentClosedStatus;
@@ -152,11 +178,40 @@ export default class CustomPath extends LightningElement {
 
   //truly private methods, only called from within this file
   _handleWireCallback = ({ data, error, cb }) => {
-    if (error) console.error;
+    if (error) console.error(error);
     else if (data) {
       cb(data);
     }
   };
+
+  _getPathItemFromStatus(status, index) {
+    const ariaSelected = !!this._storedStatus
+      ? this._storedStatus.includes(status)
+      : false;
+    const isCurrent = !!this._status ? this._status.includes(status) : false;
+    const classList = ['slds-path__item'];
+    if (ariaSelected) {
+      classList.push('slds-is-active');
+    } else {
+      const placeInStatuses = this._statuses.findIndex((aStatus) =>
+        aStatus.includes(status)
+      );
+      const indexShifter = status === CLOSED ? 0 : 1;
+      const styledProgress =
+        !ariaSelected && index - indexShifter < placeInStatuses
+          ? 'slds-is-complete'
+          : 'slds-is-incomplete';
+      classList.push(styledProgress);
+    }
+    if (isCurrent) {
+      classList.push('slds-is-current');
+    }
+    return {
+      ariaSelected: false,
+      class: classList.join(' '),
+      label: status
+    };
+  }
 
   _toggleModal() {
     this.template.querySelector('c-modal').toggleModal();
@@ -167,7 +222,6 @@ export default class CustomPath extends LightningElement {
   }
 
   async _saveLeadAndToast() {
-    let success = true;
     let error;
     try {
       this._status = this._storedStatus;
@@ -181,9 +235,9 @@ export default class CustomPath extends LightningElement {
         recordToUpdate.CustomDate__c = this._dateValue;
       }
       await updateRecord(recordToUpdate);
+      this._updateVisibleStatuses();
     } catch (err) {
       error = err;
-      success = false;
     }
     //not crazy about this ternary
     //but I'm even less crazy about the 6
@@ -191,12 +245,34 @@ export default class CustomPath extends LightningElement {
     //a second object
     this.dispatchEvent(
       new ShowToastEvent({
-        title: success ? 'Success!' : 'Record failed to save',
-        variant: success ? 'success' : 'error',
-        message: success
+        title: !error ? 'Success!' : 'Record failed to save',
+        variant: !error ? 'success' : 'error',
+        message: !error
           ? 'Record successfully updated!'
           : `Record failed to save with message: ${JSON.stringify(error)}`
       })
     );
+    //in reality, LDS errors are a lot uglier and should be handled gracefully
+    //I recommend the `reduceErrors` utils function from @tsalb/lwc-utils:
+    //https://github.com/tsalb/lwc-utils/blob/master/force-app/main/default/lwc/utils/utils.js
+  }
+
+  _updateVisibleStatuses() {
+    //update the shown statuses based on the selection
+    const newStatuses = [];
+    for (let index = 0; index < this.visibleStatuses.length; index++) {
+      const status = this.visibleStatuses[index];
+      const pathItem = this._getPathItemFromStatus(status.label, index);
+      if (
+        this._status !== this._storedStatus &&
+        pathItem.label === this._status
+      ) {
+        pathItem.class = pathItem.class
+          .replace('slds-is-complete', '')
+          .replace('  ', ' ');
+      }
+      newStatuses.push(pathItem);
+    }
+    this.visibleStatuses = newStatuses;
   }
 }

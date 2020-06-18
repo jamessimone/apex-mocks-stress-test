@@ -23,16 +23,17 @@
                     >
                       <template for:each={visibleStatuses} for:item="stage">
                         <li
-                          class="slds-path__item slds-is-incomplete"
+                          class={stage.class}
                           role="presentation"
-                          key={stage}
+                          key={stage.label}
                           onclick={handleStatusClick}
                         >
                           <a
                             class="slds-path__link"
                             tabindex="-1"
                             role="option"
-                            title={stage}
+                            title={stage.label}
+                            aria-selected={stage.ariaSelected}
                           >
                             <span class="slds-path__stage">
                               <lightning-icon
@@ -43,7 +44,7 @@
                                 alternative-text={stage}
                               ></lightning-icon>
                             </span>
-                            <span class="slds-path__title">{stage}</span>
+                            <span class="slds-path__title">{stage.label}</span>
                           </a>
                         </li>
                       </template>
@@ -97,7 +98,7 @@
             >
             </lightning-input>
             <p>
-              Once you're done selecting the date, click "save" to proceed!
+              Once you're done selecting the date, click "Save" to proceed!
             </p>
           </template>
         </template>
