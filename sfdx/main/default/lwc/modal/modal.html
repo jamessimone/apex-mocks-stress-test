@@ -1,0 +1,75 @@
+<template>
+  <section aria-hidden={isOpen}>
+    <slot name="body"></slot>
+  </section>
+  <section
+    aria-describedby="modal-content-id-1"
+    aria-hidden={modalAriaHidden}
+    aria-labelledby="modal-heading-01"
+    aria-modal="true"
+    class={cssClass}
+    onkeyup={innerKeyUpHandler}
+    role="dialog"
+    tabindex="-1"
+  >
+    <div class="slds-modal__container">
+      <a href="javascript:void(0)" class="firstlink"></a>
+
+      <template if:true={modalHeader}>
+        <header class="slds-modal__header" onclick={innerClickHandler}>
+          <button
+            onclick={closeModal}
+            class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse"
+            title="Close"
+          >
+            <svg
+              class="slds-button__icon slds-button__icon_large"
+              aria-hidden="true"
+            >
+              <use
+                xlink:href="/apexpages/slds/latest/assets/icons/utility-sprite/svg/symbols.svg#close"
+              ></use>
+            </svg>
+            <span class="slds-assistive-text">Close</span>
+          </button>
+          <h2 id="modal-heading-01" class="slds-modal__title slds-hyphenate">
+            {modalHeader}
+          </h2>
+          <template if:true={modalTagline}>
+            <p class="slds-m-top_x-small">
+              {modalTagline}
+            </p>
+          </template>
+        </header>
+      </template>
+      <div
+        class="slds-p-around_medium content"
+        id="modal-content-id-1"
+        tabindex="-1"
+        onclick={innerClickHandler}
+      >
+        <slot name="modalContent"></slot>
+      </div>
+      <footer class="slds-modal__footer" onclick={innerClickHandler}>
+        <button
+          class="slds-button slds-button_neutral cancel"
+          onclick={closeModal}
+        >
+          Cancel
+        </button>
+        <template if:true={modalSaveHandler}>
+          <button
+            class="slds-button slds-button_brand save"
+            onclick={modalSaveHandler}
+          >
+            Save
+          </button>
+        </template>
+        <a href="javascript:void(0)" class="lastLink"></a>
+      </footer>
+    </div>
+  </section>
+  <template if:true={isOpen}>
+    <div class="slds-backdrop slds-backdrop_open"></div>
+  </template>
+</template>

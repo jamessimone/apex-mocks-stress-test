@@ -1,0 +1,24 @@
+{
+    "compilerOptions": {
+        "experimentalDecorators": true,
+        "baseUrl": ".",
+        "paths": {
+            "c/customPath": [
+                "customPath/customPath.js"
+            ],
+            "c/modal": [
+                "modal/modal.js"
+            ]
+        }
+    },
+    "include": [
+        "**/*",
+        "../../.sfdx/typings/lwc/**/*.d.ts",
+        "../../../../.sfdx/typings/lwc/**/*.d.ts"
+    ],
+    "typeAcquisition": {
+        "include": [
+            "jest"
+        ]
+    }
+}
