@@ -1,3 +1,14 @@
+# Apex Mocks: Lightning Web Component Custom Lead Path
+
+This branch is associated with my post on [creating a custom Lead Path component in LWC](https://www.jamessimone.net/blog/joys-of-apex/lwc-custom-path/). Relevant files for you to peruse:
+
+- [Path HTML template](https://github.com/jamessimone/apex-mocks-stress-test/blob/lwc-path/sfdx/main/default/lwc/customPath/customPath.html)
+- [Path JS controller](https://github.com/jamessimone/apex-mocks-stress-test/blob/lwc-path/sfdx/main/default/lwc/customPath/customPath.js)
+
+Thanks for following along! I hope you enjoy.
+
+Without further ado, the readme from the Master branch:
+
 # FFLib Versus CrudMock practical testing
 
 ## Introduction

@@ -8,12 +8,13 @@ import LEAD_OBJECT from '@salesforce/schema/Lead';
 import CUSTOM_DATE_FIELD from '@salesforce/schema/Lead.CustomDate__c';
 import STATUS_FIELD from '@salesforce/schema/Lead.Status';
 
-const COMPLETED = 'Mark Status as Complete';
 const CLOSED = 'Closed';
+const CLOSED_CTA = 'Select Closed Status';
+const MARK_COMPLETED = 'Mark Status as Complete';
 const SPECIAL_STATUS = 'Closed - Special Date';
 
 export default class CustomPath extends LightningElement {
-  //start off with all @track methods and dependencies
+  //start off with all @wire methods and dependencies
   //plus lifecycle methods
   @api recordId;
   @wire(getObjectInfo, { objectApiName: LEAD_OBJECT })
@@ -25,16 +26,23 @@ export default class CustomPath extends LightningElement {
   })
   lead({ data, error }) {
     const leadCb = (data) => {
-      this._status = this._getLeadValueOrDefault(
+      this.status = this._getLeadValueOrDefault(
         data,
         STATUS_FIELD.fieldApiName
       );
-      this._storedStatus = this._status;
-      this._dateValue = this._getLeadValueOrDefault(
+      this.storedStatus = this.status;
+      this.dateValue = this._getLeadValueOrDefault(
         data,
         CUSTOM_DATE_FIELD.fieldApiName
       );
+      if (this.status && this.status.includes(CLOSED)) {
+        this.advanceButtonText = CLOSED_CTA;
+        this.currentClosedStatus = this.status;
+        this.customCloseDateSelected =
+          this.currentClosedStatus === SPECIAL_STATUS;
+      }
     };
+
     this._handleWireCallback({ data, error, cb: leadCb });
   }
 
@@ -44,19 +52,18 @@ export default class CustomPath extends LightningElement {
   })
   leadStatuses({ data, error }) {
     const leadStatusCb = (data) => {
-      const statusSet = new Set();
-      //initial iteration to build unique list
+      const statusList = [];
       data.values.forEach((picklistStatus) => {
         if (!picklistStatus.label.includes(CLOSED)) {
-          statusSet.add(picklistStatus.label);
+          statusList.push(picklistStatus.label);
         }
       });
-      statusSet.add('Closed');
-      this._statuses = Array.from(statusSet);
+      statusList.push('Closed');
+      this._statuses = statusList;
 
       //now build the visible/closed statuses
-      data.values.forEach((status, index) => {
-        if (status.label.indexOf(CLOSED) > -1) {
+      data.values.forEach((status) => {
+        if (status.label.includes(CLOSED)) {
           this.closedStatuses.push({
             label: status.label,
             value: status.label
@@ -67,43 +74,53 @@ export default class CustomPath extends LightningElement {
             this.currentClosedStatus = status.label;
           }
         } else {
-          this.visibleStatuses.push(
-            this._getPathItemFromStatus(status.label, index)
-          );
+          this.visibleStatuses.push(this._getPathItemFromStatus(status.label));
         }
       });
-      this.visibleStatuses.push(
-        this._getPathItemFromStatus(CLOSED, this.visibleStatuses.length)
-      );
+      this.visibleStatuses.push(this._getPathItemFromStatus(CLOSED));
     };
     this._handleWireCallback({ data, error, cb: leadStatusCb });
   }
 
   renderedCallback() {
-    if (!this._hasRendered && this.hasData()) {
-      this._hasRendered = true;
+    if (!this._hasRendered && this.hasData) {
+      //prevents the advance button from jumping to the side
+      //as the rest of the component loads
       this.showAdvanceButton = true;
-
-      //on the first render, we have to manually set the aria/current values
-      const current =
-        this.visibleStatuses.find(
-          (status) => status.label === this._status
-        )[0] || {};
-      current.class += ' slds-is-current';
+      this._hasRendered = true;
+    }
+    if (this.hasData) {
+      //on the first render with actual data
+      //we have to manually set the aria-selected value
+      const current = this.visibleStatuses.find((status) =>
+        this.storedStatus.includes(status.label)
+      ) || { label: 'Unknown' };
       current.ariaSelected = true;
+      current.class = 'slds-path__item slds-is-current slds-is-active';
+
+      const currentIndex = this.visibleStatuses.indexOf(current);
+      this.visibleStatuses.forEach((status, index) => {
+        if (index < currentIndex) {
+          status.class = status.class.replace(
+            'slds-is-incomplete',
+            'slds-is-complete'
+          );
+        }
+      });
     }
   }
 
-  /* private fields for tracking*/
-  @track showAdvanceButton = false;
-  @track advanceButtonText = COMPLETED;
-  @track _storedStatus;
-  @track _status;
-  @track _dateValue;
-  @track visibleStatuses = [];
+  /* private fields for tracking */
+  @track advanceButtonText = MARK_COMPLETED;
   @track closedStatuses = [];
-  @track showClosedOptions = false;
   @track currentClosedStatus;
+  @track customCloseDateSelected = false;
+  @track dateValue;
+  @track showAdvanceButton = false;
+  @track showClosedOptions = false;
+  @track status;
+  @track storedStatus;
+  @track visibleStatuses = [];
 
   //truly private fields
   _hasRendered = false;
@@ -111,19 +128,27 @@ export default class CustomPath extends LightningElement {
 
   //private methods and getters
   get pathActionIconName() {
-    return this.advanceButtonText === COMPLETED ? 'utility:check' : '';
+    return this.advanceButtonText === MARK_COMPLETED ? 'utility:check' : '';
   }
 
-  hasData() {
-    //classic
-    return !!(this.lead.data && this.leadStatuses.data);
+  get hasData() {
+    return !!(this.storedStatus && this.visibleStatuses.length > 0);
   }
 
   modalSaveHandler = async (event) => {
     event.stopPropagation();
     event.preventDefault();
-    this._toggleModal();
-    await this._saveLeadAndToast();
+
+    const allValid = [
+      ...this.template.querySelectorAll('.slds-form-element')
+    ].reduce((validSoFar, formElement) => {
+      formElement.reportValidity();
+      return validSoFar && formElement.checkValidity();
+    });
+    if (allValid) {
+      this._toggleModal();
+      await this._saveLeadAndToast();
+    }
   };
 
   handleStatusClick(event) {
@@ -132,51 +157,67 @@ export default class CustomPath extends LightningElement {
     //till the save button is clicked
     const updatedStatusName = event.target.textContent;
     this.advanceButtonText =
-      updatedStatusName === this._status ? COMPLETED : 'Mark As Current Status';
-    this._storedStatus = updatedStatusName;
+      updatedStatusName === this.status
+        ? MARK_COMPLETED
+        : 'Mark As Current Status';
+    this.storedStatus = updatedStatusName;
 
-    if (this._status !== this._storedStatus) {
+    if (this.status !== this.storedStatus) {
       this._updateVisibleStatuses();
     }
 
-    if (this._storedStatus === CLOSED) {
-      this.advanceButtonText = 'Select Closed Status';
-      this._storedStatus = this.currentClosedStatus;
-      this.showClosedOptions = true;
-      this._toggleModal();
+    if (this.storedStatus === CLOSED) {
+      this._advanceToClosedStatus();
     }
   }
 
   handleClosedStatusChange(event) {
     const newClosedStatus = event.target.value;
     this.currentClosedStatus = newClosedStatus;
-    this._storedStatus = newClosedStatus;
-    this.customCloseDateSelected = this._storedStatus === SPECIAL_STATUS;
+    this.storedStatus = newClosedStatus;
+    this.customCloseDateSelected = this.storedStatus === SPECIAL_STATUS;
+  }
+
+  handleDateOnChange(event) {
+    this.dateValue = event.target.value;
   }
 
   async handleAdvanceButtonClick(event) {
     event.stopPropagation();
 
-    if (this._status === this._storedStatus) {
-      const nextStatusIndex = this.visibleStatuses.indexOf(this._status) + 1;
-      this._storedStatus = this.visibleStatuses[nextStatusIndex];
+    if (
+      this.status === this.storedStatus &&
+      !this.storedStatus.includes(CLOSED)
+    ) {
+      const nextStatusIndex =
+        this.visibleStatuses.findIndex(
+          (visibleStatus) => visibleStatus.label === this.status
+        ) + 1;
+      this.storedStatus = this.visibleStatuses[nextStatusIndex].label;
       if (nextStatusIndex === this.visibleStatuses.length - 1) {
         //the last status should always be "Closed"
         //and the modal should be popped
-        this._toggleModal();
+        this._advanceToClosedStatus();
       } else {
         await this._saveLeadAndToast();
       }
-    } else if (this._storedStatus === CLOSED) {
+    } else if (this.storedStatus.includes(CLOSED)) {
       //curses! they closed the modal
       //let's re-open it
-      this._toggleModal();
+      this._advanceToClosedStatus();
     } else {
       await this._saveLeadAndToast();
     }
   }
 
   //truly private methods, only called from within this file
+  _advanceToClosedStatus() {
+    this.advanceButtonText = CLOSED_CTA;
+    this.storedStatus = this.currentClosedStatus;
+    this.showClosedOptions = true;
+    this._toggleModal();
+  }
+
   _handleWireCallback = ({ data, error, cb }) => {
     if (error) console.error(error);
     else if (data) {
@@ -184,24 +225,16 @@ export default class CustomPath extends LightningElement {
     }
   };
 
-  _getPathItemFromStatus(status, index) {
-    const ariaSelected = !!this._storedStatus
-      ? this._storedStatus.includes(status)
+  _getPathItemFromStatus(status) {
+    const ariaSelected = !!this.storedStatus
+      ? this.storedStatus.includes(status)
       : false;
-    const isCurrent = !!this._status ? this._status.includes(status) : false;
+    const isCurrent = !!this.status ? this.status.includes(status) : false;
     const classList = ['slds-path__item'];
     if (ariaSelected) {
       classList.push('slds-is-active');
     } else {
-      const placeInStatuses = this._statuses.findIndex((aStatus) =>
-        aStatus.includes(status)
-      );
-      const indexShifter = status === CLOSED ? 0 : 1;
-      const styledProgress =
-        !ariaSelected && index - indexShifter < placeInStatuses
-          ? 'slds-is-complete'
-          : 'slds-is-incomplete';
-      classList.push(styledProgress);
+      classList.push('slds-is-incomplete');
     }
     if (isCurrent) {
       classList.push('slds-is-current');
@@ -224,20 +257,23 @@ export default class CustomPath extends LightningElement {
   async _saveLeadAndToast() {
     let error;
     try {
-      this._status = this._storedStatus;
+      this.status = this.storedStatus;
       const recordToUpdate = {
         fields: {
           Id: this.recordId,
-          Status: this._status
+          Status: this.status,
+          CustomDate__c: null
         }
       };
-      if (this._dateValue) {
-        recordToUpdate.CustomDate__c = this._dateValue;
+      if (this.dateValue && this.status === SPECIAL_STATUS) {
+        recordToUpdate.fields.CustomDate__c = this.dateValue;
       }
       await updateRecord(recordToUpdate);
       this._updateVisibleStatuses();
+      this.advanceButtonText = MARK_COMPLETED;
     } catch (err) {
       error = err;
+      console.error(err);
     }
     //not crazy about this ternary
     //but I'm even less crazy about the 6
@@ -262,11 +298,8 @@ export default class CustomPath extends LightningElement {
     const newStatuses = [];
     for (let index = 0; index < this.visibleStatuses.length; index++) {
       const status = this.visibleStatuses[index];
-      const pathItem = this._getPathItemFromStatus(status.label, index);
-      if (
-        this._status !== this._storedStatus &&
-        pathItem.label === this._status
-      ) {
+      const pathItem = this._getPathItemFromStatus(status.label);
+      if (this.status !== this.storedStatus || pathItem.label !== this.status) {
         pathItem.class = pathItem.class
           .replace('slds-is-complete', '')
           .replace('  ', ' ');

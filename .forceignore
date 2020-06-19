@@ -12,3 +12,4 @@ package.xml
 
 # LWC Jest
 **/__tests__/**
+.localdevserver

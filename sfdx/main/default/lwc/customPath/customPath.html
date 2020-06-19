@@ -72,7 +72,7 @@
       <div slot="modalContent">
         <template if:true={showClosedOptions}>
           <lightning-combobox
-            class="slds-m-around_small"
+            class="slds-m-around_small slds-form-element"
             name="status"
             label="Status"
             value={currentClosedStatus}
@@ -94,6 +94,8 @@
               label="Reopen Date"
               type="date"
               date-style="short"
+              value={dateValue}
+              onchange={handleDateOnChange}
               required
             >
             </lightning-input>
