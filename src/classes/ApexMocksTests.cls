@@ -69,4 +69,24 @@ private class ApexMocksTests {
         System.assertEquals(LARGE_NUMBER, CrudMock.Inserted.size());
         System.assertEquals(LARGE_NUMBER, CrudMock.Updated.size());
     }
+
+    @isTest
+    static void stub_api_should_make_inserted_records() {
+        //Given
+        List<SObject> fakeInsertedRecords = new List<SObject>();
+        Stub stub = new Stub(Crud.class);
+        
+        for(Integer i = 0; i < LARGE_NUMBER; i++) {
+            Contact fakeCon = new Contact(LastName = '' + LARGE_NUMBER);
+            fakeInsertedRecords.add(fakeCon);
+        }
+        stub.setReturnValue('doInsert', fakeInsertedRecords);
+
+        //When
+        ICrud mockedCrud = (ICrud) stub.instance;
+        List<SObject> insertedRecords = mockedCrud.doInsert(fakeInsertedRecords);
+
+        //Then
+        System.assertEquals(fakeInsertedRecords.size(), insertedRecords.size());
+    }
 }
