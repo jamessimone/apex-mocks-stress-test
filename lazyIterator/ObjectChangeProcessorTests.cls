@@ -88,8 +88,11 @@ private class ObjectChangeProcessorTests {
 
   @isTest
   static void it_should_not_blow_the_stack_while_filtering() {
-    Integer sentinelValue = 100000;
-    List<Account> accounts = getAccounts(sentinelValue);
+    Double sentinelValue = Math.pow(10, 5);
+    List<Account> accounts = new List<Account>();
+    for(Integer index = 0; index < sentinelValue; index++) {
+      accounts.add(new Account(Name = 'Test ' + index));
+    }
 
     ObjectChangeProcessor processor = new ObjectChangeProcessor(accounts);
     List<Object> sameAccounts = processor
