@@ -45,8 +45,11 @@ private class ObjectChangeProcessorTests {
 
   @isTest
   static void it_should_call_functions_added_to_processor() {
+    //lets use a bunch of different accounts
+    //just to ensure we don't blow the stack
     Account acc = new Account(Name = ' Do Re Mi Pizza ', Phone = '8438816989');
-    List<Account> accs = new List<Account>{ acc };
+    List<Account> accs = getAccounts(10000);
+    accs.add(acc);
 
     ObjectChangeProcessor processor = new ObjectChangeProcessor(accs);
     processor
@@ -85,11 +88,8 @@ private class ObjectChangeProcessorTests {
 
   @isTest
   static void it_should_not_blow_the_stack_while_filtering() {
-    Integer sentinelValue = 10^7;
-    List<Account> accounts = new List<Account>();
-    for(Integer index = 0; index < sentinelValue; index++) {
-      accounts.add(new Account(Name = 'Test ' + index));
-    }
+    Integer sentinelValue = 100000;
+    List<Account> accounts = getAccounts(sentinelValue);
 
     ObjectChangeProcessor processor = new ObjectChangeProcessor(accounts);
     List<Object> sameAccounts = processor
@@ -102,5 +102,13 @@ private class ObjectChangeProcessorTests {
 
   class AlwaysTrue implements BooleanFunction {
     public Boolean isTrueFor(Object o) { return true; }
+  }
+
+  private static List<Account> getAccounts(Integer sentinelValue) {
+    List<Account> accounts = new List<Account>();
+    for(Integer index = 0; index < sentinelValue; index++) {
+      accounts.add(new Account(Name = 'Test ' + index, Phone = '8438816989'));
+    }
+    return accounts;
   }
 }

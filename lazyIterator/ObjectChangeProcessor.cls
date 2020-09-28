@@ -127,18 +127,8 @@ public class ObjectChangeProcessor {
   }
 
   virtual class LazySObjectIterator extends LazyIterator {
-    private final Iterator<SObject> iterator;
     public LazySObjectIterator(Iterator<SObject> iterator) {
-      super();
-      this.iterator = iterator;
-    }
-
-    public override Boolean hasNext() {
-      return this.iterator.hasNext();
-    }
-
-    public override Object next() {
-      return this.iterator.next();
+      super(iterator);
     }
   }
 
