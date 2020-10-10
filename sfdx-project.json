@@ -1,11 +1,14 @@
 {
   "packageDirectories": [
     {
-      "path": "src",
+      "path": "custom-permissions",
       "default": true,
       "package": "ApexMocks",
       "versionName": "0.1",
       "versionNumber": "0.1.0.NEXT"
+    },
+    {
+      "path": "src"
     }
   ],
   "namespace": "",

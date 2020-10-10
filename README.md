@@ -1,4 +1,15 @@
-# FFLib Versus CrudMock practical testing
+# Testing Custom Permissions
+
+If you're reading this, odds are you saw [my article on Testing Custom Permissions](https://www.jamessimone.net/blog/joys-of-apex/testing-custom-permissions/) and wanted to see the code. You might enjoy looking through:
+
+- [OpportunityTaskHandler](https://github.com/jamessimone/apex-mocks-stress-test/blob/testing-custom-permissions/custom-permissions/main/default/classes/OpportunityTaskHandler.cls)
+- [OpportunityTaskHandlerTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/testing-custom-permissions/custom-permissions/main/default/classes/OpportunityTaskHandlerTests.cls)
+- [Is API Task Creation Enabled (Custom Permission)](https://github.com/jamessimone/apex-mocks-stress-test/blob/testing-custom-permissions/custom-permissions/main/default/Is_API_Task_Creation_Enabled.customPermission-meta.xml)
+- [TestingUtils](https://github.com/jamessimone/apex-mocks-stress-test/blob/testing-custom-permissions/src/classes/TestingUtils.cls)
+
+Enjoy!
+
+## FFLib Versus CrudMock practical testing
 
 ## Introduction
 

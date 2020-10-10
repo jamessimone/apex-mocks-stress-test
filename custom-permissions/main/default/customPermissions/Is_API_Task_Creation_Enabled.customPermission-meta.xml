@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomPermission xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Should an API integration trigger the creation of Tasks for Sales users?</description>
+    <label>Is API Task Creation Enabled</label>
+</CustomPermission>

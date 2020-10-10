@@ -20,4 +20,29 @@ public class TestingUtils {
             }
         }
     }
+
+    public static void activateCustomPerm(Id userId, String permissionName) {
+      PermissionSet ps = new PermissionSet(
+        Name = 'CustomPermissionEnabled',
+        Label = 'Custom Permisison Enabled'
+        );
+      insert ps;
+
+      SetupEntityAccess sea = new SetupEntityAccess(
+        ParentId = ps.Id,
+        SetupEntityId = [
+          SELECT Id
+          FROM CustomPermission
+          WHERE DeveloperName = :permissionName
+          LIMIT 1
+        ].Id
+      );
+
+      PermissionSetAssignment psa = new PermissionSetAssignment(
+        AssigneeId = userId,
+        PermissionSetId = ps.Id
+      );
+
+      insert new List<SObject>{ sea, psa };
+    }
 }
