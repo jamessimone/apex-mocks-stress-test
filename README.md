@@ -1,4 +1,13 @@
-# FFLib Versus CrudMock practical testing
+# Lightweight Trigger Handler Framework
+
+If you're reading this, odds are you've come from [The Joys Of Apex article on creating a lightweight trigger handler](https://www.jamessimone.net/blog/joys-of-apex/lightweight-trigger-handler/). Feel free to browse the source code!
+
+- [TriggerHandler](https://github.com/jamessimone/apex-mocks-stress-test/blob/trigger-handler/src/classes/TriggerHandler.cls)
+- [TriggerHandlerTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/trigger-handler/src/classes/TriggerHandlerTests.cls)
+
+Thanks for stopping by, and thanks again for reading the Joys Of Apex. I hope the blog has proven helpful to you!
+
+## FFLib Versus CrudMock practical testing
 
 ## Introduction
 
