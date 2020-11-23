@@ -1,4 +1,13 @@
-# FFLib Versus CrudMock practical testing
+# Random List Shuffling In Apex
+
+Hello! If you've landed here on this branch, chances are you've read the [Joys Of Apex article on selecting random elements from a list](https://www.jamessimone.net/blog/joys-of-apex/random-shuffle-for-lists-and-the-importance-of-revisiting-old-code/). Thanks for stopping by to check out the source code.
+
+Pertinently, you'll find the following objects worthy of perusal:
+
+- [Randomizer](https://github.com/jamessimone/apex-mocks-stress-test/blob/list-shuffle/src/main/default/classes/Randomizer.cls)
+- [RandomizerTest](https://github.com/jamessimone/apex-mocks-stress-test/blob/list-shuffle/src/main/default/classes/RandomizerTest.cls)
+
+I hope these examples help - the Readme from the master branch follows:
 
 ## Introduction
 
