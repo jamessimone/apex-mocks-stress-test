@@ -13,6 +13,8 @@
   "author": "james.simone",
   "license": "ISC",
   "devDependencies": {
-    "sfdx-cli": "7.58.2"
+    "sfdx-cli": "latest",
+    "prettier-plugin-apex": "latest",
+    "prettier": "latest"
   }
 }
