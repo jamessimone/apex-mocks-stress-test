@@ -7,12 +7,52 @@ public without sharing class RollupCalculator implements Queueable {
   private final SObjectField lookupObjOpField;
   private final SObjectType lookupObj;
   private final Op op;
+  private final Boolean isNoOp;
+  private final Boolean isBatched;
+
+  private List<RollupCalculator> calculators {
+    get {
+      if (calculators == null) {
+        calculators = new List<RollupCalculator>();
+      }
+      return calculators;
+    }
+    set;
+  }
 
   private enum Op {
     SUM,
     UPDATE_SUM,
     DELETE_SUM
   } //AVG, MAX, MIN, COUNT operations can be added as needed
+
+  private RollupCalculator() {
+    this.isBatched = true;
+  }
+
+  private RollupCalculator(
+    List<SObject> calcItems,
+    SObjectField opField,
+    SObjectField lookupFieldOnCalcItem,
+    SObjectField lookupField,
+    SObjectField lookupObjOpField,
+    SObjectType lookupObj,
+    Op op,
+    Evaluator eval,
+    Map<Id, SObject> oldCalcItems
+  ) {
+    Evaluator evaluator = eval == null ? alwaysTrue : eval;
+    this.calcItems = this.filter(calcItems, evaluator);
+    this.opField = opField;
+    this.lookupFieldOnCalcItem = lookupFieldOnCalcItem;
+    this.lookupField = lookupField;
+    this.lookupObjOpField = lookupObjOpField;
+    this.lookupObj = lookupObj;
+    this.op = op;
+    this.oldCalcItems = oldCalcItems;
+    this.isNoOp = this.calcItems.isEmpty() == false;
+    this.isBatched = false;
+  }
 
   private RollupCalculator(
     List<SObject> calcItems,
@@ -24,74 +64,22 @@ public without sharing class RollupCalculator implements Queueable {
     Op op,
     Map<Id, SObject> oldCalcItems
   ) {
-    this.calcItems = calcItems;
-    this.opField = opField;
-    this.lookupFieldOnCalcItem = lookupFieldOnCalcItem;
-    this.lookupField = lookupField;
-    this.lookupObjOpField = lookupObjOpField;
-    this.lookupObj = lookupObj;
-    this.op = op;
-    this.oldCalcItems = oldCalcItems;
+    this(calcItems, opField, lookupFieldOnCalcItem, lookupField, lookupObjOpField, lookupObj, op, null, null);
   }
 
-  public void execute(System.QueueableContext qc) {
-    Map<String, List<SObject>> calcItemsByLookupField = this.getCalcItemsByLookupField();
-    List<SObject> lookupItems = this.getLookupItems(calcItemsByLookupField.keySet());
-    this.performRollup(calcItemsByLookupField, lookupItems);
-  }
-
-  public interface Evaluator {
-    Boolean matches(Object item);
-  }
-
-  /**
-    Rollup calculation section. Any time a new rollup calculation type is added, the three different operation types:
-        - insert
-        - update
-        - delete
-    need to be added. Afterwards, the object itself is enqueued to handle the actual processing.
-  */
-
-  // TODO: eval should be an optional argument, and there should be a singleton "always true" case handled internally here
-
-  public static void sum(
+  private RollupCalculator(
     List<SObject> calcItems,
-    SObjectField sumField,
+    SObjectField opField,
     SObjectField lookupFieldOnCalcItem,
     SObjectField lookupField,
-    SObjectField lookupObjSumField,
-    Evaluator eval,
-    SObjectType lookupObj
-  ) {
-    enqueue(calcItems, sumField, lookupFieldOnCalcItem, lookupField, lookupObjSumField, lookupObj, Op.SUM, eval, null);
-  }
-
-  public static void updateSum(
-    List<SObject> calcItems,
-    SObjectField sumField,
-    SObjectField lookupFieldOnCalcItem,
-    SObjectField lookupField,
-    SObjectField lookupObjSumField,
-    Evaluator eval,
+    SObjectField lookupObjOpField,
     SObjectType lookupObj,
-    Map<Id, SObject> oldCalcItems
+    Op op
   ) {
-    enqueue(calcItems, sumField, lookupFieldOnCalcItem, lookupField, lookupObjSumField, lookupObj, Op.UPDATE_SUM, eval, oldCalcItems);
+    this(calcItems, opField, lookupFieldOnCalcItem, lookupField, lookupObjOpField, lookupObj, op, null, null);
   }
 
-  public static void deleteSum(
-    List<SObject> calcItems,
-    SObjectField sumField,
-    SObjectField lookupFieldOnCalcItem,
-    SObjectField lookupField,
-    SObjectField lookupObjSumField,
-    Evaluator eval,
-    SObjectType lookupObj
-  ) {
-    enqueue(calcItems, sumField, lookupFieldOnCalcItem, lookupField, lookupObjSumField, lookupObj, Op.DELETE_SUM, eval, null);
-  }
-
-  private static void enqueue(
+  private RollupCalculator(
     List<SObject> calcItems,
     SObjectField opField,
     SObjectField lookupFieldOnCalcItem,
@@ -99,21 +87,123 @@ public without sharing class RollupCalculator implements Queueable {
     SObjectField lookupObjOpField,
     SObjectType lookupObj,
     Op op,
+    Evaluator eval
+  ) {
+    this(calcItems, opField, lookupFieldOnCalcItem, lookupField, lookupObjOpField, lookupObj, op, eval, null);
+  }
+
+  public void execute(System.QueueableContext qc) {
+    if (this.isBatched == false) {
+      this.calculators.add(this);
+    }
+    for (RollupCalculator calc : this.calculators) {
+      Map<String, List<SObject>> calcItemsByLookupField = this.getCalcItemsByLookupField(calc);
+      List<SObject> lookupItems = this.getLookupItems(calcItemsByLookupField.keySet());
+      this.performRollup(calc, calcItemsByLookupField, lookupItems);
+    }
+  }
+
+  public interface Evaluator {
+    Boolean matches(Object item);
+  }
+
+  // Singleton for use when Evaluator is not passed
+  private static final Evaluator alwaysTrue = new AlwaysTrue();
+  private class AlwaysTrue implements Evaluator {
+    public Boolean matches(Object item) {
+      return true;
+    }
+  }
+
+  /**
+   * public facing Rollup calculation section
+   * - insert
+   * - update
+   * - delete
+   * - plus the special wrapper, Batch
+   */
+
+  public static void batch(RollupCalculator calc, RollupCalculator secondCalc) {
+    RollupCalculator batchCalculator = processOrDefer(calc, new RollupCalculator());
+    processOrDefer(secondCalc, batchCalculator);
+  }
+
+  public static void batch(RollupCalculator calc, RollupCalculator secondCalc, RollupCalculator thirdCalc) {
+    RollupCalculator batchCalculator = processOrDefer(calc, new RollupCalculator());
+    processOrDefer(secondCalc, batchCalculator);
+    processOrDefer(thirdCalc, batchCalculator);
+  }
+
+  public static void batch(List<RollupCalculator> calcs) {
+    RollupCalculator batchCalculator = new RollupCalculator();
+    for (RollupCalculator calc : calcs) {
+      processOrDefer(calc, batchCalculator);
+    }
+    System.enqueueJob(batchCalculator);
+  }
+
+  public static RollupCalculator sum(
+    List<SObject> calcItems,
+    SObjectField sumField,
+    SObjectField lookupFieldOnCalcItem,
+    SObjectField lookupField,
+    SObjectField lookupObjSumField,
     Evaluator eval,
+    SObjectType lookupObj
+  ) {
+    RollupCalculator calc = new RollupCalculator(calcItems, sumField, lookupFieldOnCalcItem, lookupField, lookupObjSumField, lookupObj, Op.SUM, eval);
+    return processOrDefer(calc, null);
+  }
+
+  public static RollupCalculator updateSum(
+    List<SObject> calcItems,
+    SObjectField sumField,
+    SObjectField lookupFieldOnCalcItem,
+    SObjectField lookupField,
+    SObjectField lookupObjSumField,
+    Evaluator eval,
+    SObjectType lookupObj,
     Map<Id, SObject> oldCalcItems
   ) {
-    List<SObject> applicableCalcItems = filter(calcItems, eval);
-    if (applicableCalcItems.isEmpty()) {
-      return;
-    }
-    //TODO: do this by platform event with a fallback to queueable instead
-    System.enqueueJob(
-      new RollupCalculator(calcItems, opField, lookupFieldOnCalcItem, lookupField, lookupObjOpField, lookupObj, op, oldCalcItems)
+    RollupCalculator calc = new RollupCalculator(
+      calcItems,
+      sumField,
+      lookupFieldOnCalcItem,
+      lookupField,
+      lookupObjSumField,
+      lookupObj,
+      Op.UPDATE_SUM,
+      eval,
+      oldCalcItems
     );
+    return processOrDefer(calc, null);
+  }
+
+  public static RollupCalculator deleteSum(
+    List<SObject> calcItems,
+    SObjectField sumField,
+    SObjectField lookupFieldOnCalcItem,
+    SObjectField lookupField,
+    SObjectField lookupObjSumField,
+    Evaluator eval,
+    SObjectType lookupObj
+  ) {
+    RollupCalculator calc = new RollupCalculator(calcItems, sumField, lookupFieldOnCalcItem, lookupField, lookupObjSumField, lookupObj, Op.DELETE_SUM, eval);
+    return processOrDefer(calc, null);
   }
   // end public-facing section
 
-  private static List<SObject> filter(List<SObject> calcItems, Evaluator eval) {
+  private static RollupCalculator processOrDefer(RollupCalculator calc, RollupCalculator batchCalc) {
+    if (batchCalc != null && calc.isNoOp == false) {
+      batchCalc.calculators.add(calc);
+      return batchCalc;
+    } else {
+      System.enqueueJob(calc);
+    }
+    return calc;
+  }
+
+  private List<SObject> filter(List<SObject> calcItems, Evaluator eval) {
     List<SObject> applicableItems = new List<SObject>();
     for (SObject calcItem : calcItems) {
       if (eval.matches(calcItem)) {
@@ -123,10 +213,10 @@ public without sharing class RollupCalculator implements Queueable {
     return applicableItems;
   }
 
-  private Map<String, List<SObject>> getCalcItemsByLookupField() {
+  private Map<String, List<SObject>> getCalcItemsByLookupField(RollupCalculator calc) {
     Map<String, List<SObject>> lookupFieldToCalcItems = new Map<String, List<SObject>>();
-    for (SObject calcItem : this.calcItems) {
-      String key = (String) calcItem.get(this.lookupFieldOnCalcItem);
+    for (SObject calcItem : calc.calcItems) {
+      String key = (String) calcItem.get(calc.lookupFieldOnCalcItem);
       if (lookupFieldToCalcItems.containsKey(key) == false) {
         lookupFieldToCalcItems.put(key, new List<SObject>{ calcItem });
       } else {
@@ -148,28 +238,28 @@ public without sharing class RollupCalculator implements Queueable {
     return Database.query(queryString);
   }
 
-  private void performRollup(Map<String, List<SObject>> calcItemsByLookupField, List<SObject> lookupItems) {
+  private void performRollup(RollupCalculator calc, Map<String, List<SObject>> calcItemsByLookupField, List<SObject> lookupItems) {
     List<SObject> toUpdate = new List<SObject>();
     for (SObject lookupRecord : lookupItems) {
-      String key = (String) lookupRecord.get(this.lookupField);
+      String key = (String) lookupRecord.get(calc.lookupField);
       if (calcItemsByLookupField.containsKey(key) == false) {
         continue;
       }
 
       List<SObject> calcItems = calcItemsByLookupField.get(key);
-      Object priorVal = lookupRecord.get(this.lookupObjOpField);
-      Object newVal = this.getRollupVal(calcItems, priorVal);
-      lookupRecord.put(this.lookupObjOpField, newVal);
+      Object priorVal = lookupRecord.get(calc.lookupObjOpField);
+      Object newVal = this.getRollupVal(calc, calcItems, priorVal);
+      lookupRecord.put(calc.lookupObjOpField, newVal);
       toUpdate.add(lookupRecord);
     }
 
     update toUpdate;
   }
 
-  private Object getRollupVal(List<SObject> calcItems, Object priorVal) {
+  private Object getRollupVal(RollupCalculator calc, List<SObject> calcItems, Object priorVal) {
     Rollup rollup = this.getRollupType(priorVal);
     for (SObject calcItem : calcItems) {
-      rollup.performRollup(this.op, priorVal, calcItem, this.oldCalcItems, this.opField.getDescribe().getName());
+      rollup.performRollup(calc.op, priorVal, calcItem, calc.oldCalcItems, calc.opField.getDescribe().getName());
     }
     return rollup.getReturnValue();
   }
@@ -198,13 +288,7 @@ public without sharing class RollupCalculator implements Queueable {
       super(priorVal == null ? 0 : priorVal);
     }
 
-    public override void performRollup(
-      Op operation,
-      Object priorVal,
-      SObject calcItem,
-      Map<Id, SObject> oldCalcItems,
-      String operationField
-    ) {
+    public override void performRollup(Op operation, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, String operationField) {
       Decimal returnVal = (Decimal) this.returnVal;
       switch on operation {
         when SUM {
