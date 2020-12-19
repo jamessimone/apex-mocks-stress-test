@@ -1,6 +1,12 @@
 public without sharing class RollupCalculator implements Queueable {
   @testVisible
-  private static Boolean shouldRunFromTrigger = System.Trigger.isExecuting;
+  private static Boolean shouldRunFromTrigger = Trigger.isExecuting;
+  @testVisible
+  private static TriggerOperation triggerContext = Trigger.operationType;
+  @testVisible
+  private static List<SObject> triggerRecords;
+  @testVisible
+  private static Map<Id, SObject> oldTriggerRecordsMap;
 
   private final List<SObject> calcItems;
   private final Map<Id, SObject> oldCalcItems;
@@ -10,8 +16,10 @@ public without sharing class RollupCalculator implements Queueable {
   private final SObjectField opFieldOnLookupObject;
   private final SObjectType lookupObj;
   private final Op op;
-  private final Boolean isNoOp;
   private final Boolean isBatched;
+
+  // only non-final instance variable; can change for Batched rollups
+  private Boolean isNoOp;
 
   private List<RollupCalculator> calculators {
     get {
@@ -26,11 +34,16 @@ public without sharing class RollupCalculator implements Queueable {
   private enum Op {
     SUM,
     UPDATE_SUM,
-    DELETE_SUM
-  } //AVG, MAX, MIN, COUNT operations can be added as needed
+    DELETE_SUM,
+    COUNT,
+    UPDATE_COUNT,
+    DELETE_COUNT
+  } //AVG, MAX, MIN operations can be added as needed
 
   private RollupCalculator() {
     this.isBatched = true;
+    // a batch only becomes valid if other Calculators are added to it
+    this.isNoOp = true;
   }
 
   private RollupCalculator(
@@ -88,7 +101,7 @@ public without sharing class RollupCalculator implements Queueable {
     for (RollupCalculator calc : calcs) {
       processOrDefer(calc, batchCalculator);
     }
-    System.enqueueJob(batchCalculator);
+    runCalc(batchCalculator);
   }
 
   // TODO: Eval overload method
@@ -98,26 +111,15 @@ public without sharing class RollupCalculator implements Queueable {
     SObjectField lookupFieldOnOpObject,
     SObjectField sumFieldOnOpOject
   ) {
-    //                                                                                                                         eval, batchCalc
     return rollupFromTrigger(sumFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOpObject, sumFieldOnOpOject, Op.SUM.name(), null, null);
   }
 
-  public static RollupCalculator runFromTrigger() {
-    // this can be overridden, but only in tests
-    if (shouldRunFromTrigger == false) {
-      return null;
-    }
-    // otherwise, there are only three allowed trigger operations that qualify. if the operation type running is not one of those, return early
-    if (
-      Trigger.operationType != TriggerOperation.AFTER_INSERT &&
-      Trigger.operationType != TriggerOperation.AFTER_UPDATE &&
-      Trigger.operationType != TriggerOperation.BEFORE_DELETE
-    ) {
-      return null;
+  public static void runFromTrigger() {
+    if (shouldRunFromTrigger() == false) {
+      return;
     }
 
-    SObjectType triggerSObjectType = Trigger.isDelete ? Trigger.old.getSObjectType() : Trigger.new.getSObjectType();
-    DescribeSObjectResult describeForSObject = triggerSObjectType.getDescribe();
+    DescribeSObjectResult describeForSObject = getTriggerRecords().getSObjectType().getDescribe();
     List<Rollup__mdt> rollupOperations = [
       SELECT CalcItem__c, RollupFieldOnCalcItem__c, LookupObject__c, LookupFieldOnCalcItem__c, RollupFieldOnLookupObject__c, RollupType__c
       FROM Rollup__mdt
@@ -125,7 +127,7 @@ public without sharing class RollupCalculator implements Queueable {
     ];
 
     if (rollupOperations.isEmpty()) {
-      return null;
+      return;
     }
 
     /**
@@ -139,10 +141,8 @@ public without sharing class RollupCalculator implements Queueable {
       SObjectField rollupFieldOnCalcItem = fieldNameToField.get(getParedFieldName(rollupMetadata.RollupFieldOnCalcItem__c, describeForSObject));
       SObjectField lookupFieldOnCalcItem = fieldNameToField.get(getParedFieldName(rollupMetadata.LookupFieldOnCalcItem__c, describeForSObject));
 
-      // It ain't pretty, but it works. Oddly, attempts to directly construct the SObjectType class from Type.forName always seem to return ...
-      // the SObject Type. If anybody has more success with this, let me know!
+      // NB - this SHOULD work even for SObjects part of managed packages
       DescribeSObjectResult lookupObjectDescribe = ((SObject) Type.forName(rollupMetadata.LookupObject__c).newInstance()).getSObjectType().getDescribe();
-
       Map<String, SObjectField> lookupFieldNameToLookupFields = lookupObjectDescribe.fields.getMap();
       SObjectField lookupFieldOnOpObject = lookupFieldNameToLookupFields.get(
         getParedFieldName(rollupMetadata.LookupFieldOnLookupObject__c, lookupObjectDescribe)
@@ -150,7 +150,7 @@ public without sharing class RollupCalculator implements Queueable {
       SObjectField rollupFieldOnOpObject = lookupFieldNameToLookupFields.get(
         getParedFieldName(rollupMetadata.RollupFieldOnLookupObject__c, lookupObjectDescribe)
       );
-      // adds to the batch, TODO: still need to perform processing cleanly ...
+
       rollupFromTrigger(
         lookupFieldOnCalcItem,
         lookupFieldOnCalcItem,
@@ -161,9 +161,35 @@ public without sharing class RollupCalculator implements Queueable {
         batchCalc
       );
     }
-    return batchCalc;
+    runCalc(batchCalc);
   }
   // end public-facing section
+
+  private static Boolean shouldRunFromTrigger() {
+    // this can be overridden, but only in tests
+    Boolean shouldRun = shouldRunFromTrigger;
+    // otherwise, there are only three allowed trigger operations that qualify
+    if (
+      shouldRun &&
+      triggerContext != TriggerOperation.AFTER_INSERT &&
+      triggerContext != TriggerOperation.AFTER_UPDATE &&
+      triggerContext != TriggerOperation.BEFORE_DELETE
+    ) {
+      shouldRun = false;
+    }
+    return shouldRun;
+  }
+
+  private static List<SObject> getTriggerRecords() {
+    if (triggerRecords != null) {
+      return triggerRecords;
+    }
+    return Trigger.isDelete ? Trigger.old : Trigger.new;
+  }
+
+  private static Map<Id, SObject> getOldTriggerRecordsMap() {
+    return oldTriggerRecordsMap != null ? oldTriggerRecordsMap : Trigger.oldMap;
+  }
 
   private static String getParedFieldName(String fullFieldName, DescribeSObjectResult describeForSObject) {
     return fullFieldName.replace(describeForSObject.getName() + '.', '');
@@ -183,18 +209,15 @@ public without sharing class RollupCalculator implements Queueable {
     List<SObject> calcItems;
     Map<Id, SObject> oldCalcItems;
 
-    switch on Trigger.operationType {
-      when AFTER_INSERT {
-        calcItems = Trigger.new;
-      }
-      when AFTER_UPDATE {
-        triggerContextAndRollupOp = 'UPDATE_';
-        calcItems = Trigger.new;
-        oldCalcItems = Trigger.oldMap;
-      }
-      when BEFORE_DELETE {
-        triggerContextAndRollupOp = 'DELETE_';
-        calcItems = Trigger.old;
+    switch on triggerContext {
+      when AFTER_INSERT, AFTER_UPDATE, BEFORE_DELETE {
+        calcItems = getTriggerRecords();
+        if (triggerContext == TriggerOperation.AFTER_UPDATE) {
+          triggerContextAndRollupOp = 'UPDATE_';
+          oldCalcItems = getOldTriggerRecordsMap();
+        } else if (triggerContext == TriggerOperation.BEFORE_DELETE) {
+          triggerContextAndRollupOp = 'DELETE_';
+        }
       }
       when else {
         shouldReturnNull = true;
@@ -236,12 +259,19 @@ public without sharing class RollupCalculator implements Queueable {
   private static RollupCalculator processOrDefer(RollupCalculator calc, RollupCalculator batchCalc) {
     if (batchCalc != null && calc != null && calc.isNoOp == false) {
       batchCalc.calculators.add(calc);
+      batchCalc.isNoOp = false;
       return batchCalc;
     } else if (calc != null && calc.isNoOp == false) {
       calc.calculators.add(calc);
-      System.enqueueJob(calc);
+      runCalc(calc);
     }
     return calc;
+  }
+
+  private static void runCalc(RollupCalculator calc) {
+    if (calc != null && calc.isNoOp == false) {
+      System.enqueueJob(calc);
+    }
   }
 
   private List<SObject> filter(List<SObject> calcItems, Evaluator eval) {
@@ -289,15 +319,17 @@ public without sharing class RollupCalculator implements Queueable {
   }
 
   private Object getRollupVal(RollupCalculator calc, List<SObject> calcItems, Object priorVal) {
-    Rollup rollup = this.getRollupType(priorVal);
+    Rollup rollup = this.getRollupType(priorVal, calc.op);
     for (SObject calcItem : calcItems) {
       rollup.performRollup(calc.op, priorVal, calcItem, calc.oldCalcItems, calc.opFieldOnCalcItem);
     }
     return rollup.getReturnValue();
   }
 
-  private Rollup getRollupType(Object priorVal) {
-    if (priorVal instanceof Decimal) {
+  private Rollup getRollupType(Object priorVal, Op operationType) {
+    if(operationType.name().contains(RollupCalculator.Op.COUNT.name())) {
+      return new CountRollup(priorVal);
+    } else if (priorVal instanceof Decimal) {
       return new DecimalRollup(priorVal);
     } else {
       throw new IllegalArgumentException('Rollup operation not defined for: ' + JSON.serialize(priorVal));
@@ -309,35 +341,73 @@ public without sharing class RollupCalculator implements Queueable {
     public Rollup(Object returnVal) {
       this.returnVal = returnVal;
     }
-    public Object getReturnValue() {
+    public virtual Object getReturnValue() {
       return returnVal;
     }
     public abstract void performRollup(Op op, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField);
   }
 
-  private class DecimalRollup extends Rollup {
+  private virtual class DecimalRollup extends Rollup {
     public DecimalRollup(Object priorVal) {
+      // much as it pains me to duplicate the null check, it must be done; we can't reference instance methods till after the super() call
       super(priorVal == null ? 0 : priorVal);
+    }
+
+    protected Decimal getDecimalOrDefault(Object potentiallyUnitializedDecimal) {
+      return (Decimal) (potentiallyUnitializedDecimal == null ? 0 : potentiallyUnitializedDecimal);
+    }
+
+    protected virtual Decimal getNumericValue(SObject calcItem, SObjectField operationField) {
+      return this.getDecimalOrDefault(calcItem.get(operationField));
+    }
+
+    protected virtual Decimal getNumericChangedValue(SObject calcItem, SObjectfield operationField, Map<Id, SObject> oldCalcItems) {
+      Decimal newVal = this.getNumericValue(calcItem, operationField);
+      Decimal oldVal = this.getNumericValue(oldCalcItems.get(calcItem.Id), operationField);
+      // could be negative, could be positive ... could be 0!
+      return newVal - oldVal;
     }
 
     public override void performRollup(Op operation, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
       Decimal returnVal = (Decimal) this.returnVal;
       switch on operation {
-        when SUM {
-          returnVal += (Decimal) calcItem.get(operationField);
+        when SUM, COUNT {
+          returnVal += this.getNumericValue(calcItem, operationField);
         }
-        when DELETE_SUM {
-          returnVal -= (Decimal) calcItem.get(operationField);
+        when DELETE_SUM, DELETE_COUNT {
+          returnVal -= this.getNumericValue(calcItem, operationField);
         }
-        when UPDATE_SUM {
-          Decimal oldVal = (Decimal) oldCalcItems.get(calcItem.Id).get(operationField);
-          Decimal newVal = (Decimal) calcItem.get(operationField);
-          returnVal += (newVal - oldVal); // could be negative, could be positive
+        when UPDATE_SUM, UPDATE_COUNT {
+          returnVal += this.getNumericChangedValue(calcItem, operationField, oldCalcItems);
         }
         when else {
           throw new IllegalArgumentException('Other rollup op: ' + operation.name() + ' not yet implemented');
         }
       }
+    }
+  }
+
+  private class CountRollup extends DecimalRollup {
+    public CountRollup(Object priorVal) {
+      super(priorVal);
+    }
+
+    public override Object getReturnValue() {
+      return (Integer) this.returnVal;
+    }
+
+    protected override Decimal getNumericValue(SObject calcItem, SObjectField operationField) {
+      Decimal potentialReturnValue = super.getNumericValue(calcItem, operationField);
+      return this.getCountValue(potentialReturnValue);
+    }
+
+    protected override Decimal getNumericChangedValue(SObject calcItem, SObjectField operationField, Map<Id, SObject> oldCalcItems) {
+      Decimal potentialReturnValue = super.getNumericChangedValue(calcItem, operationField, oldCalcItems);
+      return this.getCountValue(potentialReturnValue);
+    }
+
+    private Decimal getCountValue(Decimal potentialReturnValue) {
+      return potentialReturnValue > 0 ? 1 : potentialReturnValue;
     }
   }
 }
