@@ -31,10 +31,26 @@ public without sharing class RollupCalculator implements Queueable {
     set;
   }
 
+  private static Map<String, Op> opNameToOp {
+    get {
+      if(opNameToOp == null) {
+        opNameToOp = new Map<String, Op>();
+        for(Op operation : Op.values()) {
+          opNameToOp.put(operation.name(), operation);
+        }
+      }
+      return opNameToOp;
+    }
+    set;
+  }
+
   private enum Op {
     SUM,
     UPDATE_SUM,
     DELETE_SUM,
+    COUNT_DISTINCT,
+    UPDATE_COUNT_DISTINCT,
+    DELETE_COUNT_DISTINCT,
     COUNT,
     UPDATE_COUNT,
     DELETE_COUNT
@@ -69,6 +85,16 @@ public without sharing class RollupCalculator implements Queueable {
     this.isBatched = false;
   }
 
+  public interface Evaluator {
+    Boolean matches(Object item);
+  }
+
+  public void runCalc() {
+    if (this.isNoOp == false) {
+      System.enqueueJob(this);
+    }
+  }
+
   public void execute(System.QueueableContext qc) {
     for (RollupCalculator calc : this.calculators) {
       Map<String, List<SObject>> calcItemsByLookupField = this.getCalcItemsByLookupField(calc);
@@ -77,16 +103,46 @@ public without sharing class RollupCalculator implements Queueable {
     }
   }
 
-  public interface Evaluator {
-    Boolean matches(Object item);
-  }
-
   /**
    * public facing Rollup calculation section
-   * - trigger context operations
-   * - TODO: invocable, and scheduled invocations (need to pass list, oldMap, and Op enum explicitly)
+   * - Trigger operations
+   * - TODO: invocable, and scheduled invocations (need to pass list, and Op enum explicitly)
    * - Batch
    */
+
+  public class FlowInput {
+      @InvocableVariable(label='Records to rollup to parent/related item(s)' required=true)
+      public List<SObject> originalCollection;
+
+      @InvocableVariable(label='Rollup target\'s SObject name' required=true)
+      public String rollupSObjectName;
+  }
+
+  public class FlowOutput {
+    public FlowOutput() {
+      this.IsSuccess = true;
+      this.Message = 'SUCCESS';
+    }
+
+    @InvocableVariable(label='Was rollup enqueued successfully?')
+    public Boolean IsSuccess;
+    @InvocableVariable(label='"SUCCESS" when IsSuccess is true, otherwise the encountered error message')
+    public String Message;
+  }
+
+  @InvocableMethod(category='Rollups' label='Perform rollup on records' description='Returns a single FlowOutput record with "SUCCESS" as the message if async rollup operation is enqueued successfully, and the encountered error otherwise')
+  public static List<FlowOutput> performRollup(List<FlowInput> flowInputs) {
+    List<FlowOutput> flowOutputReturns = new List<FlowOutput>();
+    try {
+      FlowOutput flowOutput = new FlowOutput();
+      flowOutputReturns.add(flowOutput);
+    } catch(Exception ex) {
+      FlowOutput flowOutput = new FlowOutput();
+      flowOutput.IsSuccess = false;
+      flowOutput.Message = ex.getMessage() + '\n' + ex.getStackTraceString();
+    }
+    return flowOutputReturns;
+  }
 
   public static void batch(RollupCalculator calc, RollupCalculator secondCalc) {
     batch(new List<RollupCalculator>{ calc, secondCalc });
@@ -99,19 +155,27 @@ public without sharing class RollupCalculator implements Queueable {
   public static void batch(List<RollupCalculator> calcs) {
     RollupCalculator batchCalculator = new RollupCalculator();
     for (RollupCalculator calc : calcs) {
-      processOrDefer(calc, batchCalculator);
+      loadCalculators(calc, batchCalculator);
     }
-    runCalc(batchCalculator);
+    batchCalculator.runCalc();
   }
 
-  // TODO: Eval overload method
   public static RollupCalculator sumFromTrigger(
     SObjectField sumFieldOnCalcItem,
     SObjectField lookupFieldOnCalcItem,
     SObjectField lookupFieldOnOpObject,
-    SObjectField sumFieldOnOpOject
+    SObjectField sumFieldOnOpOject) {
+      return sumFromTrigger(sumFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOpObject, sumFieldOnOpOject, null);
+  }
+
+  public static RollupCalculator sumFromTrigger(
+    SObjectField sumFieldOnCalcItem,
+    SObjectField lookupFieldOnCalcItem,
+    SObjectField lookupFieldOnOpObject,
+    SObjectField sumFieldOnOpOject,
+    Evaluator eval
   ) {
-    return rollupFromTrigger(sumFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOpObject, sumFieldOnOpOject, Op.SUM.name(), null, null);
+    return rollupFromTrigger(sumFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOpObject, sumFieldOnOpOject, Op.SUM.name(), eval, null);
   }
 
   public static void runFromTrigger() {
@@ -142,7 +206,7 @@ public without sharing class RollupCalculator implements Queueable {
       SObjectField lookupFieldOnCalcItem = fieldNameToField.get(getParedFieldName(rollupMetadata.LookupFieldOnCalcItem__c, describeForSObject));
 
       // NB - this SHOULD work even for SObjects part of managed packages
-      DescribeSObjectResult lookupObjectDescribe = ((SObject) Type.forName(rollupMetadata.LookupObject__c).newInstance()).getSObjectType().getDescribe();
+      DescribeSObjectResult lookupObjectDescribe = getDescribeFromSObjectName(rollupMetadata.LookupObject__c);
       Map<String, SObjectField> lookupFieldNameToLookupFields = lookupObjectDescribe.fields.getMap();
       SObjectField lookupFieldOnOpObject = lookupFieldNameToLookupFields.get(
         getParedFieldName(rollupMetadata.LookupFieldOnLookupObject__c, lookupObjectDescribe)
@@ -161,7 +225,7 @@ public without sharing class RollupCalculator implements Queueable {
         batchCalc
       );
     }
-    runCalc(batchCalc);
+    batchCalc.runCalc();
   }
   // end public-facing section
 
@@ -189,6 +253,10 @@ public without sharing class RollupCalculator implements Queueable {
 
   private static Map<Id, SObject> getOldTriggerRecordsMap() {
     return oldTriggerRecordsMap != null ? oldTriggerRecordsMap : Trigger.oldMap;
+  }
+
+  private static DescribeSObjectResult getDescribeFromSObjectName(String sobjectName) {
+    return ((SObject) Type.forName(rollupMetadata.sobjectName).newInstance()).getSObjectType().getDescribe();
   }
 
   private static String getParedFieldName(String fullFieldName, DescribeSObjectResult describeForSObject) {
@@ -229,7 +297,7 @@ public without sharing class RollupCalculator implements Queueable {
     // for AFTER_INSERT, the base operation name will always be used
     triggerContextAndRollupOp += rollupOperation;
     SObjectType sObjectType = calcItems.getSObjectType();
-    Op rollupOp = getOpFromTriggerContext(triggerContextAndRollupOp);
+    Op rollupOp = opNameToOp.get(triggerContextAndRollupOp);
 
     RollupCalculator calc = new RollupCalculator(
       calcItems,
@@ -242,36 +310,17 @@ public without sharing class RollupCalculator implements Queueable {
       oldCalcItems,
       eval
     );
-    return processOrDefer(calc, batchCalc);
+    return loadCalculators(calc, batchCalc);
   }
 
-  private static Op getOpFromTriggerContext(String rollupOperation) {
-    Op rollupOp;
-    for (Op operation : op.values()) {
-      if (operation.name() == rollupOperation) {
-        rollupOp = operation;
-        break;
-      }
-    }
-    return rollupOp;
-  }
-
-  private static RollupCalculator processOrDefer(RollupCalculator calc, RollupCalculator batchCalc) {
+  private static RollupCalculator loadCalculators(RollupCalculator calc, RollupCalculator batchCalc) {
     if (batchCalc != null && calc != null && calc.isNoOp == false) {
       batchCalc.calculators.add(calc);
       batchCalc.isNoOp = false;
-      return batchCalc;
     } else if (calc != null && calc.isNoOp == false) {
       calc.calculators.add(calc);
-      runCalc(calc);
     }
-    return calc;
-  }
-
-  private static void runCalc(RollupCalculator calc) {
-    if (calc != null && calc.isNoOp == false) {
-      System.enqueueJob(calc);
-    }
+    return batchCalc != null ? batchCalc : calc;
   }
 
   private List<SObject> filter(List<SObject> calcItems, Evaluator eval) {
@@ -327,7 +376,9 @@ public without sharing class RollupCalculator implements Queueable {
   }
 
   private Rollup getRollupType(Object priorVal, Op operationType) {
-    if(operationType.name().contains(RollupCalculator.Op.COUNT.name())) {
+    if(operationType.name().contains(RollupCalculator.Op.COUNT_DISTINCT.name())) {
+      return new CountDistinctRollup(0);
+    } else if(operationType.name().contains(RollupCalculator.Op.COUNT.name())) {
       return new CountRollup(priorVal);
     } else if (priorVal instanceof Decimal) {
       return new DecimalRollup(priorVal);
@@ -380,8 +431,23 @@ public without sharing class RollupCalculator implements Queueable {
         when UPDATE_SUM, UPDATE_COUNT {
           returnVal += this.getNumericChangedValue(calcItem, operationField, oldCalcItems);
         }
-        when else {
-          throw new IllegalArgumentException('Other rollup op: ' + operation.name() + ' not yet implemented');
+      }
+    }
+  }
+
+  private class CountDistinctRollup extends Rollup {
+    public CountDistinctRollup(Object returnValue) {
+      super(returnValue);
+    }
+
+    public override void performRollup(Op operation, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
+      Integer returnInt = (Integer) this.returnVal;
+      switch on operation {
+        WHEN COUNT_DISTINCT {
+          returnInt++;
+        }
+        when DELETE_COUNT_DISTINCT {
+          returnInt--;
         }
       }
     }
