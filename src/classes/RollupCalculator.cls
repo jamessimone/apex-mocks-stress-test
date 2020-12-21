@@ -106,41 +106,73 @@ public without sharing class RollupCalculator implements Queueable {
   /**
    * public facing Rollup calculation section
    * - Trigger operations
-   * - TODO: invocable, and scheduled invocations (need to pass list, and Op enum explicitly)
+   * - TODO: Scheduled invocations
    * - Batch
    */
 
   public class FlowInput {
-      @InvocableVariable(label='Records to rollup to parent/related item(s)' required=true)
-      public List<SObject> originalCollection;
+      @InvocableVariable(label='Records to rollup' description='Records to rollup to parent/related item(s)' required=true)
+      public List<SObject> recordsToRollup;
 
-      @InvocableVariable(label='Rollup target\'s SObject name' required=true)
+      @InvocableVariable(label='Rollup target\'s SObject Name' description='The API Name of the SObject where the rollup value will be stored.' required=true)
       public String rollupSObjectName;
+
+      @InvocableVariable(label='Rollup Operation' description='SUM, COUNT, COUNT_DISTINCT, MAX, MIN' required=true)
+      public String rollupOperation;
+
+      @InvocableVariable(label='Calc Item Rollup Field' description='The API Name of the field on each of the records passed in to consider. Not used for COUNT_DISTINCT operations')
+      public String rollupFieldOnCalcItem;
+
+      @InvocableVariable(label='Rollup Object Field' description='The API Name of the field on the target object where the rollup value will be stored' required=true)
+      public String rollupFieldOnOpObject;
+
+      @InvocableVariable(label='Lookup Field On Calc Item' description='The API Name of the field on the record to rollup that matches a field on the object where the rollup will be stored' required=true)
+      public string lookupFieldOnCalcItem;
   }
 
   public class FlowOutput {
-    public FlowOutput() {
-      this.IsSuccess = true;
+    public FlowOutput(FlowInput flowInput) {
+      this.isSuccess = true;
       this.Message = 'SUCCESS';
+      this.rollupRecords = flowInput.recordsToRollup;
     }
 
-    @InvocableVariable(label='Was rollup enqueued successfully?')
-    public Boolean IsSuccess;
-    @InvocableVariable(label='"SUCCESS" when IsSuccess is true, otherwise the encountered error message')
-    public String Message;
+    @InvocableVariable(label='Is Success' description='Was rollup enqueued successfully?')
+    public Boolean isSuccess;
+    @InvocableVariable(label='Status Message' description='"SUCCESS" when isSuccess is true, otherwise the encountered error message')
+    public String message;
+    @InvocableVariable(label='Records to rollup' description='The corresponding records to rollup from the FlowInput')
+    public List<SObject> rollupRecords;
   }
 
   @InvocableMethod(category='Rollups' label='Perform rollup on records' description='Returns a single FlowOutput record with "SUCCESS" as the message if async rollup operation is enqueued successfully, and the encountered error otherwise')
   public static List<FlowOutput> performRollup(List<FlowInput> flowInputs) {
     List<FlowOutput> flowOutputReturns = new List<FlowOutput>();
+    List<Rollup__mdt> rollups = new List<Rollup__mdt>();
     try {
-      FlowOutput flowOutput = new FlowOutput();
-      flowOutputReturns.add(flowOutput);
+      // TODO: is this the naive approach? Maybe people will pass more than SObjectType at a given time
+      String targetRollupSObjectName = flowInputs.isEmpty() == false? flowInputs[0].rollupSObjectName : '';
+      DescribeSObjectResult describeTargetRollup = getDescribeFromSObjectName(targetRollupSObjectName);
+      for(FlowInput flowInput : flowInputs) {
+        FlowOutput flowOutput = new FlowOutput(flowInput);
+        flowOutputReturns.add(flowOutput);
+
+        Rollup__mdt rollupMetadata = new Rollup__mdt();
+        rollupMetadata.RollupFieldOnCalcItem__c = flowInput.rollupFieldOnCalcItem;
+        rollupMetadata.LookupObject__c = flowInput.rollupSObjectName;
+        rollupMetadata.LookupFieldOnCalcItem__c = flowInput.lookupFieldOnCalcItem;
+        rollupMetadata.RollupFieldOnLookupObject__c = flowInput.rollupFieldOnOpObject;
+        rollupMetadata.RollupType__c = flowInput.rollupOperation;
+        rollups.add(rollupMetadata);
+      }
+      runOn(rollups, describeTargetRollup);
     } catch(Exception ex) {
-      FlowOutput flowOutput = new FlowOutput();
-      flowOutput.IsSuccess = false;
-      flowOutput.Message = ex.getMessage() + '\n' + ex.getStackTraceString();
+      for (FlowOutput flowOutput : flowOutputReturns) {
+        flowOutput.IsSuccess = false;
+        flowOutput.Message = ex.getMessage() + '\n' + ex.getStackTraceString();
+      }
     }
+
     return flowOutputReturns;
   }
 
@@ -160,6 +192,7 @@ public without sharing class RollupCalculator implements Queueable {
     batchCalculator.runCalc();
   }
 
+  //TODO: expose other rollup methods
   public static RollupCalculator sumFromTrigger(
     SObjectField sumFieldOnCalcItem,
     SObjectField lookupFieldOnCalcItem,
@@ -190,6 +223,11 @@ public without sharing class RollupCalculator implements Queueable {
       WHERE CalcItem__c = :describeForSObject.getName()
     ];
 
+    runOn(rollupOperations, describeForSObject);
+  }
+  // end public-facing section
+
+  private static void runOn(List<Rollup__mdt> rollupOperations, DescribeSObjectResult describeForSObject) {
     if (rollupOperations.isEmpty()) {
       return;
     }
@@ -227,7 +265,6 @@ public without sharing class RollupCalculator implements Queueable {
     }
     batchCalc.runCalc();
   }
-  // end public-facing section
 
   private static Boolean shouldRunFromTrigger() {
     // this can be overridden, but only in tests
@@ -256,7 +293,7 @@ public without sharing class RollupCalculator implements Queueable {
   }
 
   private static DescribeSObjectResult getDescribeFromSObjectName(String sobjectName) {
-    return ((SObject) Type.forName(rollupMetadata.sobjectName).newInstance()).getSObjectType().getDescribe();
+    return ((SObject) Type.forName(sobjectName).newInstance()).getSObjectType().getDescribe();
   }
 
   private static String getParedFieldName(String fullFieldName, DescribeSObjectResult describeForSObject) {
