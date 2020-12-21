@@ -1,4 +1,4 @@
-public without sharing class RollupCalculator implements Queueable {
+public without sharing class RollupCalculator implements System.Queueable, System.Schedulable {
   @testVisible
   private static Boolean shouldRunFromTrigger = Trigger.isExecuting;
   @testVisible
@@ -103,10 +103,13 @@ public without sharing class RollupCalculator implements Queueable {
     }
   }
 
+  public void execute(System.SchedulableContext sc) {
+    // TODO: Scheduled invocations
+  }
+
   /**
    * public facing Rollup calculation section
    * - Trigger operations
-   * - TODO: Scheduled invocations
    * - Batch
    */
 
@@ -150,7 +153,6 @@ public without sharing class RollupCalculator implements Queueable {
     List<FlowOutput> flowOutputReturns = new List<FlowOutput>();
     List<Rollup__mdt> rollups = new List<Rollup__mdt>();
     try {
-      // TODO: is this the naive approach? Maybe people will pass more than SObjectType at a given time
       String targetRollupSObjectName = flowInputs.isEmpty() == false? flowInputs[0].rollupSObjectName : '';
       DescribeSObjectResult describeTargetRollup = getDescribeFromSObjectName(targetRollupSObjectName);
       for(FlowInput flowInput : flowInputs) {
