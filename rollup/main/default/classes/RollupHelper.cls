@@ -22,19 +22,20 @@ public without sharing class RollupHelper implements System.Queueable {
   private final SObjectType lookupObj;
   private final Op op;
   private final Boolean isBatched;
+  private final Datetime now = System.now();
 
   // only non-final instance variable; can change for Batched rollups
   private Boolean isNoOp;
 
   @testVisible
   private static DMLHelper DML {
-      get {
-          if(DML == null) {
-              DML = new DMLHelper();
-          }
-          return DML;
+    get {
+      if (DML == null) {
+        DML = new DMLHelper();
       }
-      set;
+      return DML;
+    }
+    set;
   }
 
   private List<RollupHelper> calculators {
@@ -102,7 +103,7 @@ public without sharing class RollupHelper implements System.Queueable {
   }
 
   public interface Evaluator {
-    Boolean matches(Object item);
+    Boolean matches(Object calcItem);
   }
 
   public void runCalc() {
@@ -158,6 +159,12 @@ public without sharing class RollupHelper implements System.Queueable {
       required=true
     )
     public string lookupFieldOnCalcItem;
+
+    @InvocableVariable(
+      label='Calc Item Changed Fields'
+      description='Provide a comma-separated list of field API Names to consider prior to using records in the rollup'
+    )
+    public String calcItemChangedFields;
   }
 
   public class FlowOutput {
@@ -220,6 +227,7 @@ public without sharing class RollupHelper implements System.Queueable {
         rollupMetadata.LookupFieldOnCalcItem__c = flowInput.lookupFieldOnCalcItem;
         rollupMetadata.RollupFieldOnLookupObject__c = flowInput.rollupFieldOnOpObject;
         rollupMetadata.RollupType__c = flowInput.rollupOperation;
+        rollupMetadata.ChangedFieldsOnCalcItem__c = flowInput.calcItemChangedFields;
         rollups.add(rollupMetadata);
       }
       oldRecords = getOldFlowRecords(oldRecords.keySet(), fieldNames, sObjectType);
@@ -343,7 +351,14 @@ public without sharing class RollupHelper implements System.Queueable {
     return rollupMetadata != null
       ? rollupMetadata
       : [
-          SELECT CalcItem__c, RollupFieldOnCalcItem__c, LookupObject__c, LookupFieldOnCalcItem__c, RollupFieldOnLookupObject__c, RollupType__c
+          SELECT
+            CalcItem__c,
+            RollupFieldOnCalcItem__c,
+            LookupObject__c,
+            LookupFieldOnCalcItem__c,
+            RollupFieldOnLookupObject__c,
+            RollupType__c,
+            ChangedFieldsOnCalcItem__c
           FROM Rollup__mdt
           WHERE CalcItem__c = :String.valueOf(sObjectType)
         ];
@@ -384,6 +399,10 @@ public without sharing class RollupHelper implements System.Queueable {
       SObjectField rollupFieldOnOpObject = lookupFieldNameToLookupFields.get(
         getParedFieldName(rollupMetadata.RollupFieldOnLookupObject__c, lookupObjectDescribe)
       );
+
+      if(eval == null && String.isNotBlank(rollupMetadata.ChangedFieldsOnCalcItem__c)) {
+        eval = new SObjectChangedFieldEvaluator(rollupMetadata.ChangedFieldsOnCalcItem__c.split(','), oldCalcItems);
+      }
 
       loadCalculators(
         rollupFieldOnCalcItem,
@@ -500,8 +519,8 @@ public without sharing class RollupHelper implements System.Queueable {
     String queryString = 'SELECT Id, ' + calc.opFieldOnLookupObject + '\nFROM ' + calc.lookupObj + '\nWHERE ' + calc.lookupFieldOnLookupObject + ' = :objIds';
     List<SObject> lookupItems = Database.query(queryString);
     // prior to returning, we need to ensure the default value for the rollup field is set
-    for(SObject lookupItem : lookupItems) {
-      if(lookupItem.get(calc.opFieldOnLookupObject) == null) {
+    for (SObject lookupItem : lookupItems) {
+      if (lookupItem.get(calc.opFieldOnLookupObject) == null) {
         lookupItem.put(calc.opFieldOnLookupObject, this.getDefaultValue(calc.opFieldOnLookupObject));
       }
     }
@@ -513,28 +532,27 @@ public without sharing class RollupHelper implements System.Queueable {
     // this is a shame - all types *should* have default values. Instead, we have the privilege of having to initialize these ourselves
     Schema.DisplayType fieldType = field.getDescribe().getType();
     Object initializedDefault;
-    SWITCH ON fieldType {
-      WHEN CURRENCY, DOUBLE, INTEGER, LONG, PERCENT {
+    switch on fieldType {
+      when CURRENCY, DOUBLE, INTEGER, LONG, PERCENT {
         initializedDefault = 0;
       }
-      WHEN BOOLEAN {
+      when BOOLEAN {
         initializedDefault = false;
       }
-      WHEN DATETIME {
-        initializedDefault = System.now();
+      when DATETIME {
+        initializedDefault = now;
       }
-      WHEN DATE {
-        initializedDefault = System.today();
+      when DATE {
+        initializedDefault = now.dateGmt();
       }
-      WHEN TIME {
-        Datetime now = System.now();
-        initializedDefault = Time.newInstance(now.hourGmt(), now.minuteGmt(), now.secondGmt(), now.millisecondGmt());
+      when TIME {
+        initializedDefault = now.timeGmt();
       }
-      WHEN STRING, PICKLIST, ID, TEXTAREA, URL, PHONE, EMAIL, MULTIPICKLIST, ENCRYPTEDSTRING {
+      when STRING, PICKLIST, ID, TEXTAREA, URL, PHONE, EMAIL, MULTIPICKLIST, ENCRYPTEDSTRING {
         initializedDefault = '';
       }
-      WHEN ELSE {
-        throw new IllegalArgumentException('Rollup field specified invalid for rollup operation: ' + fieldType.name());
+      when else {
+        throw new IllegalArgumentException('Field specified invalid for rollup operation: ' + fieldType.name());
       }
     }
     return initializedDefault;
@@ -578,9 +596,31 @@ public without sharing class RollupHelper implements System.Queueable {
 
   @testVisible
   private virtual class DMLHelper {
-      public virtual void doUpdate(List<SObject> recordsToUpdate) {
-          update recordsToUpdate;
+    public virtual void doUpdate(List<SObject> recordsToUpdate) {
+      update recordsToUpdate;
+    }
+  }
+
+  private class SObjectChangedFieldEvaluator implements Evaluator {
+    private final List<String> changedFieldNames;
+    private final Map<Id, SObject> oldRecordsMap;
+    public SObjectChangedFieldEvaluator(List<String> changedFieldNames, Map<Id, SObject> oldRecordsMap) {
+      this.changedFieldNames = changedFieldNames;
+      this.oldRecordsMap = oldRecordsMap;
+    }
+
+    public Boolean matches(Object calcItem) {
+      SObject calcSObject = (SObject) calcItem;
+      SObject oldRecord = oldRecordsMap.get(calcSObject.Id);
+      Boolean matches = this.changedFieldNames.isEmpty() || this.oldRecordsMap == null;
+      for(String fieldName : this.changedFieldNames) {
+        if(calcSObject.get(fieldName) != oldRecord.get(fieldName)) {
+          matches = true;
+          break;
+        }
       }
+      return matches;
+    }
   }
 
   private abstract class Rollup {
