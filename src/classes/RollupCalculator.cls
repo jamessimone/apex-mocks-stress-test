@@ -6,8 +6,9 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
   @testVisible
   private static List<SObject> triggerRecords;
   @testVisible
-  private static Map<Id, SObject> oldTriggerRecordsMap;
+  private static Map<Id, SObject> oldRecordsMap;
 
+  // TODO: perform caching on these; no need to duplicate the references for every rollup calculator if they're all using the same underyling dataset
   private final List<SObject> calcItems;
   private final Map<Id, SObject> oldCalcItems;
   private final SObjectField opFieldOnCalcItem;
@@ -172,19 +173,34 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     List<FlowOutput> flowOutputReturns = new List<FlowOutput>();
     List<Rollup__mdt> rollups = new List<Rollup__mdt>();
     //TODO: guard clause for non-flow operations?
-    //TODO: have to fetch oldRecords map here
+
     try {
+      Map<Id, SObject> oldRecords = new Map<Id, SObject>();
+      List<SObject> calcItems = new List<SObject>();
       FlowInput firstInput = flowInputs.isEmpty() == false ? flowInputs[0] : new FlowInput();
       String targetRollupSObjectName = String.isBlank(firstInput.rollupSObjectName) ? '' : firstInput.rollupSObjectName;
       SObjectType sObjectType = getSObjectTypeFromName(targetRollupSObjectName);
+      String rollupContext = getFlowRollupContext(firstInput);
+      Boolean isFirstSObject = true;
+      Set<String> fieldNames;
 
       for (FlowInput flowInput : flowInputs) {
         FlowOutput flowOutput = new FlowOutput(flowInput);
         flowOutputReturns.add(flowOutput);
 
-        if(sObjectType == null || rollupOp == null) {
-          throw new IllegalArgumentException('SObject type: ' + sObjectType + ', or rollup operation: ' + rollupOp + ' were empty, exiting');
+        if (sObjectType == null || String.isBlank((rollupContext))) {
+          throw new IllegalArgumentException('SObject type: ' + sObjectType + ', or rollup operation: ' + rollupContext + ' were empty, exiting');
         }
+
+        for (SObject record : flowInput.recordsToRollup) {
+          if (isFirstSObject) {
+            isFirstSObject = false;
+            fieldNames = record.getPopulatedFieldsAsMap().keySet();
+          }
+          calcItems.add(record);
+          oldRecords.put(record.Id, record);
+        }
+
         // TODO: you can reference CMDT in flows, but can you pass those records to Apex?
         // Either way, may want to keep this version, since it gives the Flow creator more flexibility
         Rollup__mdt rollupMetadata = new Rollup__mdt();
@@ -195,7 +211,8 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
         rollupMetadata.RollupType__c = flowInput.rollupOperation;
         rollups.add(rollupMetadata);
       }
-      runOn(rollups, sObjectType, getFlowRollupContext(firstInput));
+      oldRecords = getOldFlowRecords(oldRecords.keySet(), fieldNames, sObjectType);
+      runOn(rollups, sObjectType, rollupContext, calcItems, oldRecords);
     } catch (Exception ex) {
       for (FlowOutput flowOutput : flowOutputReturns) {
         flowOutput.IsSuccess = false;
@@ -227,9 +244,10 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     SObjectField sumFieldOnCalcItem,
     SObjectField lookupFieldOnCalcItem,
     SObjectField lookupFieldOnOpObject,
-    SObjectField sumFieldOnOpOject
+    SObjectField sumFieldOnOpOject,
+    SObjectType lookupSobjectType
   ) {
-    return sumFromTrigger(sumFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOpObject, sumFieldOnOpOject, null);
+    return sumFromTrigger(sumFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOpObject, sumFieldOnOpOject, lookupSobjectType, null);
   }
 
   public static RollupCalculator sumFromTrigger(
@@ -237,9 +255,20 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     SObjectField lookupFieldOnCalcItem,
     SObjectField lookupFieldOnOpObject,
     SObjectField sumFieldOnOpOject,
+    SObjectType lookupSObjectType,
     Evaluator eval
   ) {
-    return loadCalculators(sumFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOpObject, sumFieldOnOpOject, Op.SUM.name(), eval, null);
+    Rollup__mdt rollupMetadata = new Rollup__mdt(
+      RollupFieldOnCalcItem__c = sumFieldOnCalcItem.getDescribe().getName(),
+      LookupObject__c = String.valueOf(lookupSObjectType),
+      LookupFieldOnCalcItem__c = lookupFieldOnCalcItem.getDescribe().getName(),
+      RollupFieldOnLookupObject__c = sumFieldOnOpOject.getDescribe().getName(),
+      RollupType__c = Op.SUM.name()
+    );
+    //TODO: fixme
+    return null;
+    // return runOn(new List<Rollup__mdt>{ rollupMetadata }, sObjectType, rollupContext, calcItems, oldCalcItems)
+    // (sumFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOpObject, sumFieldOnOpOject, Op.SUM.name(), eval, null);
   }
 
   public static void runFromTrigger() {
@@ -279,17 +308,30 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
       return;
     }
 
-    runOn(rollupOperations, sObjectType, rollupContext);
+    runOn(rollupOperations, sObjectType, rollupContext, calcItems, oldCalcItems);
   }
   // end public-facing section
 
-  private String getFlowRollupContext(FlowInput firstInput) {
+  private static String getFlowRollupContext(FlowInput firstInput) {
     String flowContext = String.isBlank(firstInput.rollupContext) ? 'INSERT' : firstInput.rollupContext;
     return flowContext == 'INSERT' ? '' : flowContext;
   }
 
-  //TODO: have to update to pass records, oldRecordsMap here
-  private static void runOn(List<Rollup__mdt> rollupOperations, SObjectType sObjectType, String rollupContext) {
+  private static Map<Id, SObject> getOldFlowRecords(Set<Id> currentRecords, Set<String> fieldNames, SObjectType sObjectType) {
+    return oldRecordsMap != null
+      ? oldRecordsMap
+      : new Map<Id, SObject>(
+          Database.query('SELECT ' + String.join(new List<String>(fieldNames), ',') + 'FROM ' + String.valueOf(sObjectType) + 'WHERE Id = :currentRecords')
+        );
+  }
+
+  private static void runOn(
+    List<Rollup__mdt> rollupOperations,
+    SObjectType sObjectType,
+    String rollupContext,
+    List<SObject> calcItems,
+    Map<Id, SObject> oldCalcItems
+  ) {
     if (rollupOperations.isEmpty()) {
       return;
     }
@@ -325,6 +367,8 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
         sObjectType,
         rollupOp,
         batchCalc,
+        calcItems,
+        oldCalcItems,
         null // eval
       );
     }
@@ -354,7 +398,7 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
   }
 
   private static Map<Id, SObject> getOldTriggerRecordsMap() {
-    return oldTriggerRecordsMap != null ? oldTriggerRecordsMap : Trigger.oldMap;
+    return oldRecordsMap != null ? oldRecordsMap : Trigger.oldMap;
   }
 
   private static SObjectType getSObjectTypeFromName(String sobjectName) {
@@ -373,6 +417,8 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     SObjectType sObjectType,
     Op rollupOp,
     RollupCalculator batchCalc,
+    List<SObject> calcItems,
+    Map<Id, SObject> oldCalcItems,
     Evaluator eval
   ) {
     RollupCalculator calc = new RollupCalculator(
