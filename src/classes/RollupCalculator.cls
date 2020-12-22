@@ -1,12 +1,14 @@
 public without sharing class RollupCalculator implements System.Queueable, System.Schedulable {
   @testVisible
-  private static Boolean shouldRunFromTrigger = Trigger.isExecuting;
+  private static Boolean shouldRun = Trigger.isExecuting || System.Request.getCurrent().getQuiddity() == Quiddity.INVOCABLE_ACTION;
   @testVisible
   private static TriggerOperation triggerContext = Trigger.operationType;
   @testVisible
   private static List<SObject> triggerRecords;
   @testVisible
   private static Map<Id, SObject> oldRecordsMap;
+  @testVisible
+  private static List<Rollup__mdt> rollupMetadata;
 
   // TODO: perform caching on these; no need to duplicate the references for every rollup calculator if they're all using the same underyling dataset
   private final List<SObject> calcItems;
@@ -212,7 +214,7 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
         rollups.add(rollupMetadata);
       }
       oldRecords = getOldFlowRecords(oldRecords.keySet(), fieldNames, sObjectType);
-      runOn(rollups, sObjectType, rollupContext, calcItems, oldRecords);
+      getCalculator(rollups, sObjectType, rollupContext, calcItems, oldRecords, null).runCalc();
     } catch (Exception ex) {
       for (FlowOutput flowOutput : flowOutputReturns) {
         flowOutput.IsSuccess = false;
@@ -265,24 +267,22 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
       RollupFieldOnLookupObject__c = sumFieldOnOpOject.getDescribe().getName(),
       RollupType__c = Op.SUM.name()
     );
-    //TODO: fixme
-    return null;
-    // return runOn(new List<Rollup__mdt>{ rollupMetadata }, sObjectType, rollupContext, calcItems, oldCalcItems)
-    // (sumFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOpObject, sumFieldOnOpOject, Op.SUM.name(), eval, null);
+    return runFromTrigger(new List<Rollup__mdt>{ rollupMetadata }, eval);
   }
 
   public static void runFromTrigger() {
+    SObjectType sObjectType = getTriggerRecords().getSObjectType();
+    List<Rollup__mdt> rollupMetadata = getTriggerRollupMetadata(sObjectType);
+    runFromTrigger(rollupMetadata, null).runCalc();
+  }
+
+  private static RollupCalculator runFromTrigger(List<Rollup__mdt> rollupMetadata, Evaluator eval) {
     if (shouldRunFromTrigger() == false) {
-      return;
+      return new RollupCalculator();
     }
 
     List<SObject> calcItems = getTriggerRecords();
     SObjectType sObjectType = calcItems.getSObjectType();
-    List<Rollup__mdt> rollupOperations = [
-      SELECT CalcItem__c, RollupFieldOnCalcItem__c, LookupObject__c, LookupFieldOnCalcItem__c, RollupFieldOnLookupObject__c, RollupType__c
-      FROM Rollup__mdt
-      WHERE CalcItem__c = :String.valueOf(sObjectType)
-    ];
 
     String rollupContext;
     Boolean shouldReturn = false;
@@ -305,10 +305,10 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
       }
     }
     if (shouldReturn) {
-      return;
+      return new RollupCalculator();
     }
 
-    runOn(rollupOperations, sObjectType, rollupContext, calcItems, oldCalcItems);
+    return getCalculator(rollupMetadata, sObjectType, rollupContext, calcItems, oldCalcItems, eval);
   }
   // end public-facing section
 
@@ -325,15 +325,26 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
         );
   }
 
-  private static void runOn(
+  private static List<Rollup__mdt> getTriggerRollupMetadata(SObjectType sObjectType) {
+    return rollupMetadata != null
+      ? rollupMetadata
+      : [
+          SELECT CalcItem__c, RollupFieldOnCalcItem__c, LookupObject__c, LookupFieldOnCalcItem__c, RollupFieldOnLookupObject__c, RollupType__c
+          FROM Rollup__mdt
+          WHERE CalcItem__c = :String.valueOf(sObjectType)
+        ];
+  }
+
+  private static RollupCalculator getCalculator(
     List<Rollup__mdt> rollupOperations,
     SObjectType sObjectType,
     String rollupContext,
     List<SObject> calcItems,
-    Map<Id, SObject> oldCalcItems
+    Map<Id, SObject> oldCalcItems,
+    Evaluator eval
   ) {
     if (rollupOperations.isEmpty()) {
-      return;
+      return new RollupCalculator();
     }
 
     /**
@@ -366,18 +377,18 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
         rollupFieldOnOpObject,
         sObjectType,
         rollupOp,
-        batchCalc,
         calcItems,
         oldCalcItems,
-        null // eval
+        batchCalc,
+        eval
       );
     }
-    batchCalc.runCalc();
+    return batchCalc;
   }
 
   private static Boolean shouldRunFromTrigger() {
     // this can be overridden, but only in tests
-    Boolean shouldRun = shouldRunFromTrigger;
+    Boolean shouldRun = shouldRun;
     // otherwise, there are only three allowed trigger operations that qualify
     if (
       shouldRun &&
@@ -416,9 +427,9 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     SObjectField rollupFieldOnOpObject,
     SObjectType sObjectType,
     Op rollupOp,
-    RollupCalculator batchCalc,
     List<SObject> calcItems,
     Map<Id, SObject> oldCalcItems,
+    RollupCalculator batchCalc,
     Evaluator eval
   ) {
     RollupCalculator calc = new RollupCalculator(
