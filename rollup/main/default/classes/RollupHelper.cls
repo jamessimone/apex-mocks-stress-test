@@ -1,4 +1,6 @@
-public without sharing class RollupCalculator implements System.Queueable, System.Schedulable {
+public without sharing class RollupHelper implements System.Queueable {
+  // it's valid to save RollupHelper with System.Schedulable implemented as well, but it's not valid to run a Queueable
+  // with other system interfaces implemented without getting: "System.AsyncException: Queueable cannot be implemented with other system interfaces."
   @testVisible
   private static Boolean shouldRun = Trigger.isExecuting || System.Request.getCurrent().getQuiddity() == Quiddity.INVOCABLE_ACTION;
   @testVisible
@@ -24,10 +26,21 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
   // only non-final instance variable; can change for Batched rollups
   private Boolean isNoOp;
 
-  private List<RollupCalculator> calculators {
+  @testVisible
+  private static DMLHelper DML {
+      get {
+          if(DML == null) {
+              DML = new DMLHelper();
+          }
+          return DML;
+      }
+      set;
+  }
+
+  private List<RollupHelper> calculators {
     get {
       if (calculators == null) {
-        calculators = new List<RollupCalculator>();
+        calculators = new List<RollupHelper>();
       }
       return calculators;
     }
@@ -59,13 +72,13 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     DELETE_COUNT
   } //AVG, MAX, MIN operations can be added as needed
 
-  private RollupCalculator() {
+  private RollupHelper() {
     this.isBatched = true;
     // a batch only becomes valid if other Calculators are added to it
     this.isNoOp = true;
   }
 
-  private RollupCalculator(
+  private RollupHelper(
     List<SObject> calcItems,
     SObjectField opFieldOnCalcItem,
     SObjectField lookupFieldOnCalcItem,
@@ -84,7 +97,7 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     this.lookupObj = lookupObj;
     this.op = op;
     this.oldCalcItems = oldCalcItems;
-    this.isNoOp = this.calcItems.isEmpty() == false;
+    this.isNoOp = this.calcItems.isEmpty();
     this.isBatched = false;
   }
 
@@ -99,15 +112,11 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
   }
 
   public void execute(System.QueueableContext qc) {
-    for (RollupCalculator calc : this.calculators) {
+    for (RollupHelper calc : this.calculators) {
       Map<String, List<SObject>> calcItemsByLookupField = this.getCalcItemsByLookupField(calc);
-      List<SObject> lookupItems = this.getLookupItems(calcItemsByLookupField.keySet());
+      List<SObject> lookupItems = this.getLookupItems(calcItemsByLookupField.keySet(), calc);
       this.performRollup(calc, calcItemsByLookupField, lookupItems);
     }
-  }
-
-  public void execute(System.SchedulableContext sc) {
-    // TODO: Scheduled invocations
   }
 
   /**
@@ -225,24 +234,28 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     return flowOutputReturns;
   }
 
-  public static void batch(RollupCalculator calc, RollupCalculator secondCalc) {
-    batch(new List<RollupCalculator>{ calc, secondCalc });
+  /**
+   * Static public methods and helper methods
+   */
+
+  public static void batch(RollupHelper calc, RollupHelper secondCalc) {
+    batch(new List<RollupHelper>{ calc, secondCalc });
   }
 
-  public static void batch(RollupCalculator calc, RollupCalculator secondCalc, RollupCalculator thirdCalc) {
-    batch(new List<RollupCalculator>{ calc, secondCalc, thirdCalc });
+  public static void batch(RollupHelper calc, RollupHelper secondCalc, RollupHelper thirdCalc) {
+    batch(new List<RollupHelper>{ calc, secondCalc, thirdCalc });
   }
 
-  public static void batch(List<RollupCalculator> calcs) {
-    RollupCalculator batchCalculator = new RollupCalculator();
-    for (RollupCalculator calc : calcs) {
+  public static void batch(List<RollupHelper> calcs) {
+    RollupHelper batchCalculator = new RollupHelper();
+    for (RollupHelper calc : calcs) {
       loadCalculators(calc, batchCalculator);
     }
     batchCalculator.runCalc();
   }
 
   //TODO: expose other rollup methods
-  public static RollupCalculator sumFromTrigger(
+  public static RollupHelper sumFromTrigger(
     SObjectField sumFieldOnCalcItem,
     SObjectField lookupFieldOnCalcItem,
     SObjectField lookupFieldOnOpObject,
@@ -252,7 +265,7 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     return sumFromTrigger(sumFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOpObject, sumFieldOnOpOject, lookupSobjectType, null);
   }
 
-  public static RollupCalculator sumFromTrigger(
+  public static RollupHelper sumFromTrigger(
     SObjectField sumFieldOnCalcItem,
     SObjectField lookupFieldOnCalcItem,
     SObjectField lookupFieldOnOpObject,
@@ -264,6 +277,7 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
       RollupFieldOnCalcItem__c = sumFieldOnCalcItem.getDescribe().getName(),
       LookupObject__c = String.valueOf(lookupSObjectType),
       LookupFieldOnCalcItem__c = lookupFieldOnCalcItem.getDescribe().getName(),
+      LookupFieldOnLookupObject__c = lookupFieldOnOpObject.getDescribe().getName(),
       RollupFieldOnLookupObject__c = sumFieldOnOpOject.getDescribe().getName(),
       RollupType__c = Op.SUM.name()
     );
@@ -276,9 +290,9 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     runFromTrigger(rollupMetadata, null).runCalc();
   }
 
-  private static RollupCalculator runFromTrigger(List<Rollup__mdt> rollupMetadata, Evaluator eval) {
+  private static RollupHelper runFromTrigger(List<Rollup__mdt> rollupMetadata, Evaluator eval) {
     if (shouldRunFromTrigger() == false) {
-      return new RollupCalculator();
+      return new RollupHelper();
     }
 
     List<SObject> calcItems = getTriggerRecords();
@@ -305,7 +319,7 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
       }
     }
     if (shouldReturn) {
-      return new RollupCalculator();
+      return new RollupHelper();
     }
 
     return getCalculator(rollupMetadata, sObjectType, rollupContext, calcItems, oldCalcItems, eval);
@@ -335,7 +349,7 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
         ];
   }
 
-  private static RollupCalculator getCalculator(
+  private static RollupHelper getCalculator(
     List<Rollup__mdt> rollupOperations,
     SObjectType sObjectType,
     String rollupContext,
@@ -344,7 +358,7 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     Evaluator eval
   ) {
     if (rollupOperations.isEmpty()) {
-      return new RollupCalculator();
+      return new RollupHelper();
     }
 
     /**
@@ -352,7 +366,7 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
      * Frustratingly, the generic "put" operation for SObjects (necessary later) doesn't support these "full length" field names
      * (nor can you retrieve them from the "fieldNameToField" map below). Let's pare them down and get ready to rollup!
      */
-    RollupCalculator batchCalc = new RollupCalculator();
+    RollupHelper batchCalc = new RollupHelper();
     DescribeSObjectResult describeForSObject = sObjectType.getDescribe();
     Map<String, SObjectField> fieldNameToField = describeForSObject.fields.getMap();
     for (Rollup__mdt rollupMetadata : rollupOperations) {
@@ -361,7 +375,8 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
       SObjectField lookupFieldOnCalcItem = fieldNameToField.get(getParedFieldName(rollupMetadata.LookupFieldOnCalcItem__c, describeForSObject));
 
       // NB - this SHOULD work even for SObjects part of managed packages
-      DescribeSObjectResult lookupObjectDescribe = getSObjectTypeFromName(rollupMetadata.LookupObject__c).getDescribe();
+      SObjectType lookupSObjectType = getSObjectTypeFromName(rollupMetadata.LookupObject__c);
+      DescribeSObjectResult lookupObjectDescribe = lookupSObjectType.getDescribe();
       Map<String, SObjectField> lookupFieldNameToLookupFields = lookupObjectDescribe.fields.getMap();
       SObjectField lookupFieldOnOpObject = lookupFieldNameToLookupFields.get(
         getParedFieldName(rollupMetadata.LookupFieldOnLookupObject__c, lookupObjectDescribe)
@@ -371,11 +386,11 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
       );
 
       loadCalculators(
-        lookupFieldOnCalcItem,
+        rollupFieldOnCalcItem,
         lookupFieldOnCalcItem,
         lookupFieldOnOpObject,
         rollupFieldOnOpObject,
-        sObjectType,
+        lookupSObjectType,
         rollupOp,
         calcItems,
         oldCalcItems,
@@ -420,7 +435,7 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     return fullFieldName.replace(describeForSObject.getName() + '.', '');
   }
 
-  private static RollupCalculator loadCalculators(
+  private static RollupHelper loadCalculators(
     SObjectField rollupFieldOnCalcItem,
     SObjectField lookupFieldOnCalcItem,
     SObjectField lookupFieldOnOpObject,
@@ -429,10 +444,10 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     Op rollupOp,
     List<SObject> calcItems,
     Map<Id, SObject> oldCalcItems,
-    RollupCalculator batchCalc,
+    RollupHelper batchCalc,
     Evaluator eval
   ) {
-    RollupCalculator calc = new RollupCalculator(
+    RollupHelper calc = new RollupHelper(
       calcItems,
       rollupFieldOnCalcItem,
       lookupFieldOnCalcItem,
@@ -446,7 +461,7 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     return loadCalculators(calc, batchCalc);
   }
 
-  private static RollupCalculator loadCalculators(RollupCalculator calc, RollupCalculator batchCalc) {
+  private static RollupHelper loadCalculators(RollupHelper calc, RollupHelper batchCalc) {
     if (batchCalc != null && calc != null && calc.isNoOp == false) {
       batchCalc.calculators.add(calc);
       batchCalc.isNoOp = false;
@@ -455,6 +470,8 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     }
     return batchCalc != null ? batchCalc : calc;
   }
+
+  /** End static section, begin private instance methods */
 
   private List<SObject> filter(List<SObject> calcItems, Evaluator eval) {
     List<SObject> applicableItems = new List<SObject>();
@@ -466,7 +483,7 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     return applicableItems;
   }
 
-  private Map<String, List<SObject>> getCalcItemsByLookupField(RollupCalculator calc) {
+  private Map<String, List<SObject>> getCalcItemsByLookupField(RollupHelper calc) {
     Map<String, List<SObject>> lookupFieldToCalcItems = new Map<String, List<SObject>>();
     for (SObject calcItem : calc.calcItems) {
       String key = (String) calcItem.get(calc.lookupFieldOnCalcItem);
@@ -479,28 +496,67 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
     return lookupFieldToCalcItems;
   }
 
-  private List<SObject> getLookupItems(Set<String> objIds) {
-    String queryString = 'SELECT Id, ' + this.opFieldOnLookupObject + '\nFROM ' + this.lookupObj + '\nWHERE ' + this.lookupFieldOnLookupObject + ' = :objIds';
-    return Database.query(queryString);
+  private List<SObject> getLookupItems(Set<String> objIds, RollupHelper calc) {
+    String queryString = 'SELECT Id, ' + calc.opFieldOnLookupObject + '\nFROM ' + calc.lookupObj + '\nWHERE ' + calc.lookupFieldOnLookupObject + ' = :objIds';
+    List<SObject> lookupItems = Database.query(queryString);
+    // prior to returning, we need to ensure the default value for the rollup field is set
+    for(SObject lookupItem : lookupItems) {
+      if(lookupItem.get(calc.opFieldOnLookupObject) == null) {
+        lookupItem.put(calc.opFieldOnLookupObject, this.getDefaultValue(calc.opFieldOnLookupObject));
+      }
+    }
+    return lookupItems;
   }
 
-  private void performRollup(RollupCalculator calc, Map<String, List<SObject>> calcItemsByLookupField, List<SObject> lookupItems) {
-    List<SObject> toUpdate = new List<SObject>();
+  private Object getDefaultValue(SObjectField field) {
+    // not surprisingly, "getDefaultValue" on the DescribeFieldResult returns null for fields without default values
+    // this is a shame - all types *should* have default values. Instead, we have the privilege of having to initialize these ourselves
+    Schema.DisplayType fieldType = field.getDescribe().getType();
+    Object initializedDefault;
+    SWITCH ON fieldType {
+      WHEN CURRENCY, DOUBLE, INTEGER, LONG, PERCENT {
+        initializedDefault = 0;
+      }
+      WHEN BOOLEAN {
+        initializedDefault = false;
+      }
+      WHEN DATETIME {
+        initializedDefault = System.now();
+      }
+      WHEN DATE {
+        initializedDefault = System.today();
+      }
+      WHEN TIME {
+        Datetime now = System.now();
+        initializedDefault = Time.newInstance(now.hourGmt(), now.minuteGmt(), now.secondGmt(), now.millisecondGmt());
+      }
+      WHEN STRING, PICKLIST, ID, TEXTAREA, URL, PHONE, EMAIL, MULTIPICKLIST, ENCRYPTEDSTRING {
+        initializedDefault = '';
+      }
+      WHEN ELSE {
+        throw new IllegalArgumentException('Rollup field specified invalid for rollup operation: ' + fieldType.name());
+      }
+    }
+    return initializedDefault;
+  }
+
+  private void performRollup(RollupHelper calc, Map<String, List<SObject>> calcItemsByLookupField, List<SObject> lookupItems) {
+    List<SObject> recordsToUpdate = new List<SObject>();
     for (SObject lookupRecord : lookupItems) {
       String key = (String) lookupRecord.get(calc.lookupFieldOnLookupObject);
-      if (calcItemsByLookupField.containsKey(key) == false) {
+      if (calcItemsByLookupField.containsKey(key)) {
         List<SObject> calcItems = calcItemsByLookupField.get(key);
         Object priorVal = lookupRecord.get(calc.opFieldOnLookupObject);
         Object newVal = this.getRollupVal(calc, calcItems, priorVal);
         lookupRecord.put(calc.opFieldOnLookupObject, newVal);
-        toUpdate.add(lookupRecord);
+        recordsToUpdate.add(lookupRecord);
       }
     }
 
-    update toUpdate;
+    DML.doUpdate(recordsToUpdate);
   }
 
-  private Object getRollupVal(RollupCalculator calc, List<SObject> calcItems, Object priorVal) {
+  private Object getRollupVal(RollupHelper calc, List<SObject> calcItems, Object priorVal) {
     Rollup rollup = this.getRollupType(priorVal, calc.op);
     for (SObject calcItem : calcItems) {
       rollup.performRollup(calc.op, priorVal, calcItem, calc.oldCalcItems, calc.opFieldOnCalcItem);
@@ -509,15 +565,22 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
   }
 
   private Rollup getRollupType(Object priorVal, Op operationType) {
-    if (operationType.name().contains(RollupCalculator.Op.COUNT_DISTINCT.name())) {
+    if (operationType.name().contains(RollupHelper.Op.COUNT_DISTINCT.name())) {
       return new CountDistinctRollup(0);
-    } else if (operationType.name().contains(RollupCalculator.Op.COUNT.name())) {
+    } else if (operationType.name().contains(RollupHelper.Op.COUNT.name())) {
       return new CountRollup(priorVal);
     } else if (priorVal instanceof Decimal) {
       return new DecimalRollup(priorVal);
     } else {
       throw new IllegalArgumentException('Rollup operation not defined for: ' + JSON.serialize(priorVal));
     }
+  }
+
+  @testVisible
+  private virtual class DMLHelper {
+      public virtual void doUpdate(List<SObject> recordsToUpdate) {
+          update recordsToUpdate;
+      }
   }
 
   private abstract class Rollup {
@@ -565,6 +628,7 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
           returnVal += this.getNumericChangedValue(calcItem, operationField, oldCalcItems);
         }
       }
+      this.returnVal = returnVal;
     }
   }
 
@@ -583,6 +647,7 @@ public without sharing class RollupCalculator implements System.Queueable, Syste
           returnInt--;
         }
       }
+      this.returnVal = returnInt;
     }
   }
 
