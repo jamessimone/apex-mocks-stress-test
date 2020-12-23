@@ -12,6 +12,8 @@ public without sharing class RollupHelper implements System.Queueable {
   @testVisible
   private static List<Rollup__mdt> rollupMetadata;
 
+  private static final Datetime now = System.now();
+
   // TODO: perform caching on these; no need to duplicate the references for every rollup calculator if they're all using the same underyling dataset
   private final List<SObject> calcItems;
   private final Map<Id, SObject> oldCalcItems;
@@ -22,7 +24,6 @@ public without sharing class RollupHelper implements System.Queueable {
   private final SObjectType lookupObj;
   private final Op op;
   private final Boolean isBatched;
-  private final Datetime now = System.now();
 
   // only non-final instance variable; can change for Batched rollups
   private Boolean isNoOp;
@@ -113,11 +114,40 @@ public without sharing class RollupHelper implements System.Queueable {
   }
 
   public void execute(System.QueueableContext qc) {
+    Map<String, SObject> updatedLookupRecords = new Map<String, SObject>();
+
+    Map<SObjectType, Set<String>> lookupObjectToUniqueFieldNames = new Map<SObjectType, Set<String>>();
+    for (RollupHelper calc : this.calculators) {
+      String fieldName = calc.opFieldOnLookupObject.getDescribe().getName();
+      if (lookupObjectToUniqueFieldNames.containsKey(calc.lookupObj)) {
+        lookupObjectToUniqueFieldNames.get(calc.lookupObj).add(fieldName);
+      } else {
+        Set<String> fieldNames = new Set<String>();
+        fieldNames.add(fieldName);
+        lookupObjectToUniqueFieldNames.put(calc.lookupObj, fieldNames);
+      }
+    }
+
     for (RollupHelper calc : this.calculators) {
       Map<String, List<SObject>> calcItemsByLookupField = this.getCalcItemsByLookupField(calc);
-      List<SObject> lookupItems = this.getLookupItems(calcItemsByLookupField.keySet(), calc);
-      this.performRollup(calc, calcItemsByLookupField, lookupItems);
+      List<SObject> lookupItems = new List<SObject>();
+      Set<String> lookupItemKeys = new Set<String>(calcItemsByLookupField.keySet());
+      for (String key : calcItemsByLookupField.keySet()) {
+        if (updatedLookupRecords.containsKey(key)) {
+          lookupItemKeys.remove(key);
+          // this way, the updated values are persisted for each field
+          lookupItems.add(updatedLookupRecords.get(key));
+        }
+      }
+      lookupItems.addAll(this.getLookupItems(lookupItemKeys, calc, lookupObjectToUniqueFieldNames.get(calc.lookupObj)));
+      List<SObject> updatedRecords = this.getUpdatedLookupItemsByRollup(calc, calcItemsByLookupField, lookupItems);
+
+      for (SObject updatedRecord : updatedRecords) {
+        updatedLookupRecords.put(updatedRecord.Id, updatedRecord);
+      }
     }
+
+    DML.doUpdate(updatedLookupRecords.values());
   }
 
   /**
@@ -190,7 +220,9 @@ public without sharing class RollupHelper implements System.Queueable {
   public static List<FlowOutput> performRollup(List<FlowInput> flowInputs) {
     List<FlowOutput> flowOutputReturns = new List<FlowOutput>();
     List<Rollup__mdt> rollups = new List<Rollup__mdt>();
-    //TODO: guard clause for non-flow operations?
+    if (shouldRun == false) {
+      return flowOutputReturns;
+    }
 
     try {
       Map<Id, SObject> oldRecords = new Map<Id, SObject>();
@@ -219,15 +251,14 @@ public without sharing class RollupHelper implements System.Queueable {
           oldRecords.put(record.Id, record);
         }
 
-        // TODO: you can reference CMDT in flows, but can you pass those records to Apex?
-        // Either way, may want to keep this version, since it gives the Flow creator more flexibility
-        Rollup__mdt rollupMetadata = new Rollup__mdt();
-        rollupMetadata.RollupFieldOnCalcItem__c = flowInput.rollupFieldOnCalcItem;
-        rollupMetadata.LookupObject__c = flowInput.rollupSObjectName;
-        rollupMetadata.LookupFieldOnCalcItem__c = flowInput.lookupFieldOnCalcItem;
-        rollupMetadata.RollupFieldOnLookupObject__c = flowInput.rollupFieldOnOpObject;
-        rollupMetadata.RollupType__c = flowInput.rollupOperation;
-        rollupMetadata.ChangedFieldsOnCalcItem__c = flowInput.calcItemChangedFields;
+        Rollup__mdt rollupMetadata = new Rollup__mdt(
+          RollupFieldOnCalcItem__c = flowInput.rollupFieldOnCalcItem,
+          LookupObject__c = flowInput.rollupSObjectName,
+          LookupFieldOnCalcItem__c = flowInput.lookupFieldOnCalcItem,
+          RollupFieldOnLookupObject__c = flowInput.rollupFieldOnOpObject,
+          RollupType__c = flowInput.rollupOperation,
+          ChangedFieldsOnCalcItem__c = flowInput.calcItemChangedFields
+        );
         rollups.add(rollupMetadata);
       }
       oldRecords = getOldFlowRecords(oldRecords.keySet(), fieldNames, sObjectType);
@@ -348,6 +379,7 @@ public without sharing class RollupHelper implements System.Queueable {
   }
 
   private static List<Rollup__mdt> getTriggerRollupMetadata(SObjectType sObjectType) {
+    // TODO: after Spring 21 is released, can just call Rollup__mdt.getAll();
     return rollupMetadata != null
       ? rollupMetadata
       : [
@@ -400,7 +432,7 @@ public without sharing class RollupHelper implements System.Queueable {
         getParedFieldName(rollupMetadata.RollupFieldOnLookupObject__c, lookupObjectDescribe)
       );
 
-      if(eval == null && String.isNotBlank(rollupMetadata.ChangedFieldsOnCalcItem__c)) {
+      if (eval == null && String.isNotBlank(rollupMetadata.ChangedFieldsOnCalcItem__c)) {
         eval = new SObjectChangedFieldEvaluator(rollupMetadata.ChangedFieldsOnCalcItem__c.split(','), oldCalcItems);
       }
 
@@ -451,7 +483,7 @@ public without sharing class RollupHelper implements System.Queueable {
   }
 
   private static String getParedFieldName(String fullFieldName, DescribeSObjectResult describeForSObject) {
-    return fullFieldName.replace(describeForSObject.getName() + '.', '');
+    return String.isBlank(fullFieldName) ? '' : fullFieldName.replace(describeForSObject.getName() + '.', '');
   }
 
   private static RollupHelper loadCalculators(
@@ -480,6 +512,7 @@ public without sharing class RollupHelper implements System.Queueable {
     return loadCalculators(calc, batchCalc);
   }
 
+  // TODO: when calculators are added to the list, we should also compare the hash for their records/oldRecordsMap
   private static RollupHelper loadCalculators(RollupHelper calc, RollupHelper batchCalc) {
     if (batchCalc != null && calc != null && calc.isNoOp == false) {
       batchCalc.calculators.add(calc);
@@ -515,8 +548,15 @@ public without sharing class RollupHelper implements System.Queueable {
     return lookupFieldToCalcItems;
   }
 
-  private List<SObject> getLookupItems(Set<String> objIds, RollupHelper calc) {
-    String queryString = 'SELECT Id, ' + calc.opFieldOnLookupObject + '\nFROM ' + calc.lookupObj + '\nWHERE ' + calc.lookupFieldOnLookupObject + ' = :objIds';
+  private List<SObject> getLookupItems(Set<String> objIds, RollupHelper calc, Set<String> uniqueQueryFieldNames) {
+    String queryString =
+      'SELECT Id, ' +
+      String.join(new List<String>(uniqueQueryFieldNames), ',') +
+      '\nFROM ' +
+      calc.lookupObj +
+      '\nWHERE ' +
+      calc.lookupFieldOnLookupObject +
+      ' = :objIds';
     List<SObject> lookupItems = Database.query(queryString);
     // prior to returning, we need to ensure the default value for the rollup field is set
     for (SObject lookupItem : lookupItems) {
@@ -558,7 +598,7 @@ public without sharing class RollupHelper implements System.Queueable {
     return initializedDefault;
   }
 
-  private void performRollup(RollupHelper calc, Map<String, List<SObject>> calcItemsByLookupField, List<SObject> lookupItems) {
+  private List<SObject> getUpdatedLookupItemsByRollup(RollupHelper calc, Map<String, List<SObject>> calcItemsByLookupField, List<SObject> lookupItems) {
     List<SObject> recordsToUpdate = new List<SObject>();
     for (SObject lookupRecord : lookupItems) {
       String key = (String) lookupRecord.get(calc.lookupFieldOnLookupObject);
@@ -571,7 +611,7 @@ public without sharing class RollupHelper implements System.Queueable {
       }
     }
 
-    DML.doUpdate(recordsToUpdate);
+    return recordsToUpdate;
   }
 
   private Object getRollupVal(RollupHelper calc, List<SObject> calcItems, Object priorVal) {
@@ -613,8 +653,8 @@ public without sharing class RollupHelper implements System.Queueable {
       SObject calcSObject = (SObject) calcItem;
       SObject oldRecord = oldRecordsMap.get(calcSObject.Id);
       Boolean matches = this.changedFieldNames.isEmpty() || this.oldRecordsMap == null;
-      for(String fieldName : this.changedFieldNames) {
-        if(calcSObject.get(fieldName) != oldRecord.get(fieldName)) {
+      for (String fieldName : this.changedFieldNames) {
+        if (calcSObject.get(fieldName) != oldRecord.get(fieldName)) {
           matches = true;
           break;
         }
@@ -697,7 +737,7 @@ public without sharing class RollupHelper implements System.Queueable {
     }
 
     public override Object getReturnValue() {
-      return (Integer) this.returnVal;
+      return Integer.valueOf(this.returnVal);
     }
 
     protected override Decimal getNumericValue(SObject calcItem, SObjectField operationField) {
