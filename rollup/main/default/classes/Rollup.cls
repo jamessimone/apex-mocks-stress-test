@@ -1,6 +1,4 @@
-public without sharing class Rollup implements System.Queueable {
-  // it's valid to save Rollup with System.Schedulable implemented as well, but it's not valid to run a Queueable
-  // with other system interfaces implemented without getting: "System.AsyncException: Queueable cannot be implemented with other system interfaces."
+public without sharing virtual class Rollup implements Database.Batchable<SObject> {
   @testVisible
   private static Boolean shouldRun = Trigger.isExecuting || System.Request.getCurrent().getQuiddity() == Quiddity.INVOCABLE_ACTION;
   @testVisible
@@ -108,53 +106,106 @@ public without sharing class Rollup implements System.Queueable {
     Boolean matches(Object calcItem);
   }
 
+  public class SObjectChangedFieldEvaluator implements Evaluator {
+    private final List<String> changedFieldNames;
+    private final Map<Id, SObject> oldRecordsMap;
+    public SObjectChangedFieldEvaluator(List<String> changedFieldNames, Map<Id, SObject> oldRecordsMap) {
+      this.changedFieldNames = changedFieldNames;
+      this.oldRecordsMap = oldRecordsMap;
+    }
+
+    public Boolean matches(Object calcItem) {
+      SObject calcSObject = (SObject) calcItem;
+      SObject oldRecord = oldRecordsMap.get(calcSObject.Id);
+      Boolean matches = this.changedFieldNames.isEmpty() || this.oldRecordsMap == null;
+      for (String fieldName : this.changedFieldNames) {
+        if (calcSObject.get(fieldName) != oldRecord.get(fieldName)) {
+          matches = true;
+          break;
+        }
+      }
+      return matches;
+    }
+  }
+
   public void runCalc() {
     if (this.isNoOp == false) {
       System.enqueueJob(this);
     }
   }
 
-  public void execute(System.QueueableContext qc) {
-    Map<String, SObject> updatedLookupRecords = new Map<String, SObject>();
+  public Database.QueryLocator start(Database.BatchableContext context) {
+    //TODO: infinite scaling
+    return null;
+  }
 
-    Map<SObjectType, Set<String>> lookupObjectToUniqueFieldNames = new Map<SObjectType, Set<String>>();
-    for (Rollup calc : this.calculators) {
-      String fieldName = calc.opFieldOnLookupObject.getDescribe().getName();
-      if (lookupObjectToUniqueFieldNames.containsKey(calc.lookupObj)) {
-        lookupObjectToUniqueFieldNames.get(calc.lookupObj).add(fieldName);
-      } else {
-        Set<String> fieldNames = new Set<String>();
-        fieldNames.add(fieldName);
-        lookupObjectToUniqueFieldNames.put(calc.lookupObj, fieldNames);
-      }
+  public void execute(Database.BatchableContext context, List<SObject> scope) {
+  }
+
+  public void finish(Database.BatchableContext context) {
+  }
+
+  private class RollupAsyncProcessor extends Rollup implements System.Queueable {
+    public RollupAsyncProcessor(
+      List<SObject> calcItems,
+      SObjectField opFieldOnCalcItem,
+      SObjectField lookupFieldOnCalcItem,
+      SObjectField lookupFieldOnLookupObject,
+      SObjectField opFieldOnLookupObject,
+      SObjectType lookupObj,
+      Op operation,
+      Map<Id, SObject> oldCalcItems,
+      Evaluator eval
+    ) {
+      super(calcItems, opFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnLookupObject, opFieldOnLookupObject, lookupObj, operation, oldCalcItems, eval);
     }
 
-    for (Rollup calc : this.calculators) {
-      Map<String, List<SObject>> calcItemsByLookupField = this.getCalcItemsByLookupField(calc);
-      List<SObject> lookupItems = new List<SObject>();
-      Set<String> lookupItemKeys = new Set<String>(calcItemsByLookupField.keySet());
-      for (String key : calcItemsByLookupField.keySet()) {
-        if (updatedLookupRecords.containsKey(key)) {
-          lookupItemKeys.remove(key);
-          // this way, the updated values are persisted for each field
-          lookupItems.add(updatedLookupRecords.get(key));
+    public RollupAsyncProcessor() {
+      super();
+    }
+
+    public void execute(System.QueueableContext qc) {
+      Map<String, SObject> updatedLookupRecords = new Map<String, SObject>();
+
+      Map<SObjectType, Set<String>> lookupObjectToUniqueFieldNames = new Map<SObjectType, Set<String>>();
+      for (Rollup calc : this.calculators) {
+        String fieldName = calc.opFieldOnLookupObject.getDescribe().getName();
+        if (lookupObjectToUniqueFieldNames.containsKey(calc.lookupObj)) {
+          lookupObjectToUniqueFieldNames.get(calc.lookupObj).add(fieldName);
+        } else {
+          Set<String> fieldNames = new Set<String>();
+          fieldNames.add(fieldName);
+          lookupObjectToUniqueFieldNames.put(calc.lookupObj, fieldNames);
         }
       }
-      lookupItems.addAll(this.getLookupItems(lookupItemKeys, calc, lookupObjectToUniqueFieldNames.get(calc.lookupObj)));
-      List<SObject> updatedRecords = this.getUpdatedLookupItemsByRollup(calc, calcItemsByLookupField, lookupItems);
 
-      for (SObject updatedRecord : updatedRecords) {
-        updatedLookupRecords.put(updatedRecord.Id, updatedRecord);
+      for (Rollup calc : this.calculators) {
+        Map<String, List<SObject>> calcItemsByLookupField = this.getCalcItemsByLookupField(calc);
+        List<SObject> lookupItems = new List<SObject>();
+        Set<String> lookupItemKeys = new Set<String>(calcItemsByLookupField.keySet());
+        for (String key : calcItemsByLookupField.keySet()) {
+          if (updatedLookupRecords.containsKey(key)) {
+            lookupItemKeys.remove(key);
+            // this way, the updated values are persisted for each field
+            lookupItems.add(updatedLookupRecords.get(key));
+          }
+        }
+        lookupItems.addAll(this.getLookupItems(lookupItemKeys, calc, lookupObjectToUniqueFieldNames.get(calc.lookupObj)));
+        List<SObject> updatedRecords = this.getUpdatedLookupItemsByRollup(calc, calcItemsByLookupField, lookupItems);
+
+        for (SObject updatedRecord : updatedRecords) {
+          updatedLookupRecords.put(updatedRecord.Id, updatedRecord);
+        }
       }
-    }
 
-    DML.doUpdate(updatedLookupRecords.values());
+      DML.doUpdate(updatedLookupRecords.values());
+    }
   }
 
   /**
    * public facing Rollup calculation section
    * - Trigger operations
-   * - Batch
+   * - Batch (multiple Rollup operations chained into one job)
    * - Invocable
    */
 
@@ -291,7 +342,7 @@ public without sharing class Rollup implements System.Queueable {
   }
 
   public static void batch(List<Rollup> calcs) {
-    Rollup batchCalculator = new Rollup();
+    Rollup batchCalculator = new RollupAsyncProcessor();
     for (Rollup calc : calcs) {
       loadCalculators(calc, batchCalculator);
     }
@@ -396,7 +447,7 @@ public without sharing class Rollup implements System.Queueable {
 
   private static Rollup runFromTrigger(List<Rollup__mdt> rollupMetadata, Evaluator eval) {
     if (shouldRunFromTrigger() == false) {
-      return new Rollup();
+      return new RollupAsyncProcessor();
     }
 
     List<SObject> calcItems = getTriggerRecords();
@@ -423,7 +474,7 @@ public without sharing class Rollup implements System.Queueable {
       }
     }
     if (shouldReturn) {
-      return new Rollup();
+      return new RollupAsyncProcessor();
     }
 
     return getCalculator(rollupMetadata, sObjectType, rollupContext, calcItems, oldCalcItems, eval);
@@ -470,7 +521,7 @@ public without sharing class Rollup implements System.Queueable {
     Evaluator eval
   ) {
     if (rollupOperations.isEmpty()) {
-      return new Rollup();
+      return new RollupAsyncProcessor();
     }
 
     /**
@@ -478,7 +529,7 @@ public without sharing class Rollup implements System.Queueable {
      * Frustratingly, the generic "put" operation for SObjects (necessary later) doesn't support these "full length" field names
      * (nor can you retrieve them from the "fieldNameToField" map below). Let's pare them down and get ready to rollup!
      */
-    Rollup batchCalc = new Rollup();
+    Rollup batchCalc = new RollupAsyncProcessor();
     DescribeSObjectResult describeForSObject = sObjectType.getDescribe();
     Map<String, SObjectField> fieldNameToField = describeForSObject.fields.getMap();
     for (Rollup__mdt rollupMetadata : rollupOperations) {
@@ -563,7 +614,7 @@ public without sharing class Rollup implements System.Queueable {
     Rollup batchCalc,
     Evaluator eval
   ) {
-    Rollup calc = new Rollup(
+    Rollup calc = new RollupAsyncProcessor(
       calcItems,
       rollupFieldOnCalcItem,
       lookupFieldOnCalcItem,
@@ -703,29 +754,6 @@ public without sharing class Rollup implements System.Queueable {
   private virtual class DMLHelper {
     public virtual void doUpdate(List<SObject> recordsToUpdate) {
       update recordsToUpdate;
-    }
-  }
-
-  //TODO: expose static methods for this as well
-  private class SObjectChangedFieldEvaluator implements Evaluator {
-    private final List<String> changedFieldNames;
-    private final Map<Id, SObject> oldRecordsMap;
-    public SObjectChangedFieldEvaluator(List<String> changedFieldNames, Map<Id, SObject> oldRecordsMap) {
-      this.changedFieldNames = changedFieldNames;
-      this.oldRecordsMap = oldRecordsMap;
-    }
-
-    public Boolean matches(Object calcItem) {
-      SObject calcSObject = (SObject) calcItem;
-      SObject oldRecord = oldRecordsMap.get(calcSObject.Id);
-      Boolean matches = this.changedFieldNames.isEmpty() || this.oldRecordsMap == null;
-      for (String fieldName : this.changedFieldNames) {
-        if (calcSObject.get(fieldName) != oldRecord.get(fieldName)) {
-          matches = true;
-          break;
-        }
-      }
-      return matches;
     }
   }
 
