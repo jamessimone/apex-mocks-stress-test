@@ -129,8 +129,48 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   public void runCalc() {
-    if (this.isNoOp == false) {
+    if (this.isNoOp) {
+      return;
+    }
+
+    // we need to burn a few SOQL calls to consider how many records are going to be queried/updated
+    // using a conservative estimate, we'll switch to Batch if we're within 1/3 of the DML limit of 10,000 rows
+    Boolean hasMoreThanOneTarget = false;
+    SObjectType targetType;
+    Map<String, Set<String>> queryCountsToLookupIds = new Map<String, Set<String>>();
+    for (Rollup rollup : this.calculators) {
+      if (targetType == null) {
+        targetType = rollup.lookupObj;
+      } else if (rollup.lookupObj != targetType) {
+        hasMoreThanOneTarget = true;
+      }
+
+      Set<String> uniqueLookupFields = new Set<String>();
+      for (SObject calcItem : rollup.calcItems) {
+        uniqueLookupFields.add((String) calcItem.get(rollup.lookupFieldOnCalcItem));
+      }
+
+      String countQuery = 'SELECT Count() FROM ' + String.valueOf(rollup.lookupObj) + ' WHERE Id = : objIds';
+      if (queryCountsToLookupIds.containsKey(countQuery)) {
+        queryCountsToLookupIds.get(countQuery).addAll(uniqueLookupFields);
+      } else {
+        queryCountsToLookupIds.put(countQuery, uniqueLookupFields);
+      }
+    }
+
+    Integer totalCountOfRecords = 0;
+    for (String countQuery : queryCountsToLookupIds.keySet()) {
+      Set<String> objIds = queryCountsToLookupIds.get(countQuery);
+      totalCountOfRecords += Database.countQuery(countQuery);
+    }
+
+    if (totalCountOfRecords >= (Limits.getLimitDmlRows() / 3) && hasMoreThanOneTarget == false) {
+      // safe to batch because the QueryLocator will only return one type of SObject
+      // TODO: batchable
+    } else if (totalCountOfRecords <= (Limits.getLimitDmlRows() / 2)) {
       System.enqueueJob(this);
+    } else {
+      throw new AsyncException('Number of records that would be rolled up : ' + totalCountOfRecords + ' exceeds safety threshold');
     }
   }
 
@@ -487,6 +527,9 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private static Map<Id, SObject> getOldFlowRecords(Set<Id> currentRecords, Set<String> fieldNames, SObjectType sObjectType) {
+    if (currentRecords.isEmpty()) {
+      return new Map<Id, SObject>();
+    }
     return oldRecordsMap != null
       ? oldRecordsMap
       : new Map<Id, SObject>(
@@ -569,9 +612,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private static Boolean shouldRunFromTrigger() {
-    // this can be overridden, but only in tests
-    Boolean shouldRun = shouldRun;
-    // otherwise, there are only three allowed trigger operations that qualify
+    // there are only three allowed trigger operations that qualify
     if (
       shouldRun &&
       triggerContext != TriggerOperation.AFTER_INSERT &&
