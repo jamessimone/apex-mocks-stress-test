@@ -61,8 +61,7 @@ private class RollupTests {
 
   @isTest
   static void shouldSumFromTriggerBeforeDelete() {
-    Opportunity opp = new Opportunity(Amount = 100);
-    DMLMock mock = getMock(new List<Opportunity>{ opp });
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 100) });
     Rollup.triggerContext = TriggerOperation.BEFORE_DELETE;
 
     Test.startTest();
@@ -76,8 +75,7 @@ private class RollupTests {
 
   @isTest
   static void shouldCountDistinctFromTrigger() {
-    Opportunity opp = new Opportunity();
-    DMLMock mock = getMock(new List<Opportunity>{ opp });
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity() });
     Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
 
     Test.startTest();
@@ -91,8 +89,7 @@ private class RollupTests {
 
   @isTest
   static void shouldCountFromTrigger() {
-    Opportunity opp = new Opportunity(Amount = 1);
-    DMLMock mock = getMock(new List<Opportunity>{ opp });
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 1) });
     Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
 
     Test.startTest();
@@ -106,8 +103,7 @@ private class RollupTests {
 
   @isTest
   static void shouldRunSumFromTriggerBasedOnMetadata() {
-    Opportunity opp = new Opportunity(Amount = 100);
-    DMLMock mock = getMock(new List<Opportunity>{ opp });
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 100) });
     Rollup.rollupMetadata = new List<Rollup__mdt>{
       new Rollup__mdt(
         RollupFieldOnCalcItem__c = 'Amount',
@@ -131,8 +127,7 @@ private class RollupTests {
 
   @isTest
   static void shouldRunMultipleOperationsWhenMoreMetadataIsPresent() {
-    Opportunity opp = new Opportunity(Amount = 100);
-    DMLMock mock = getMock(new List<Opportunity>{ opp });
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 100) });
     Rollup.rollupMetadata = new List<Rollup__mdt>{
       new Rollup__mdt(
         RollupFieldOnCalcItem__c = 'Amount',
@@ -162,7 +157,35 @@ private class RollupTests {
     System.assertEquals(1, updatedAcc.NumberOfEmployees, 'COUNT_DISTINCT AFTER_INSERT should count regardless of not pointing to a field based on CMDT');
   }
 
-  // TODO: invocable test, test for object changed evaluator, rollups for time, date, datetime, string, boolean(??), illegal arg
+  @isTest
+  static void shouldBeInvokedSuccessfullyAfterInsertFromFlow() {
+    List<Opportunity> opps = new List<Opportunity>{ new Opportunity(Amount = 1000) };
+    DMLMock mock = getMock(opps);
+    Rollup.triggerRecords = null; // just to ensure this is coming from the correct place
+
+    Rollup.FlowInput flowInput = new Rollup.FlowInput();
+    flowInput.recordsToRollup = opps;
+    flowInput.lookupFieldOnCalcItem = 'AccountId';
+    flowInput.lookupFieldOnOpObject = 'Id';
+    flowInput.rollupContext = 'INSERT';
+    flowInput.rollupFieldOnCalcItem = 'Amount';
+    flowInput.rollupFieldOnOpObject = 'AnnualRevenue';
+    flowInput.rollupSObjectName = 'Account';
+    flowInput.rollupOperation = 'SUM';
+
+    Test.startTest();
+    List<Rollup.FlowOutput> flowOutputs = Rollup.performRollup(new List<Rollup.FlowInput>{ flowInput });
+    Test.stopTest();
+
+    System.assertEquals(1, flowOutputs.size(), 'Flow ouputs were not provided');
+    System.assertEquals('SUCCESS', flowOutputs[0].message);
+    System.assertEquals(true, flowOutputs[0].isSuccess);
+
+    System.assertEquals(1, mock.Records.size(), 'SUM AFTER_INSERT from flow did not update accounts');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(1000, updatedAcc.AnnualRevenue, 'SUM AFTER_INSERT from flow should match input Amount');
+  }
+  // TODO: invocable tests for update/delete, test for object changed evaluator, rollups for time, date, datetime, string, boolean(??), illegal arg
 
   private static DMLMock getMock(List<SObject> records) {
     Account acc = [SELECT Id FROM Account];

@@ -192,6 +192,13 @@ public without sharing class Rollup implements System.Queueable {
     public string lookupFieldOnCalcItem;
 
     @InvocableVariable(
+      label='Lookup Field On Rollup Object'
+      description='The API Name of the field on the SObject matching the value found in "lookupFieldOnCalcItem" where the rollup will be stored'
+      required=true
+    )
+    public string lookupFieldOnOpObject;
+
+    @InvocableVariable(
       label='Calc Item Changed Fields'
       description='Provide a comma-separated list of field API Names to consider prior to using records in the rollup'
     )
@@ -229,23 +236,19 @@ public without sharing class Rollup implements System.Queueable {
       Map<Id, SObject> oldRecords = new Map<Id, SObject>();
       List<SObject> calcItems = new List<SObject>();
       FlowInput firstInput = flowInputs.isEmpty() == false ? flowInputs[0] : new FlowInput();
-      String targetRollupSObjectName = String.isBlank(firstInput.rollupSObjectName) ? '' : firstInput.rollupSObjectName;
-      SObjectType sObjectType = getSObjectTypeFromName(targetRollupSObjectName);
       String rollupContext = getFlowRollupContext(firstInput);
       Boolean isFirstSObject = true;
+      SObjectType recordSObjectType;
       Set<String> fieldNames;
 
       for (FlowInput flowInput : flowInputs) {
         FlowOutput flowOutput = new FlowOutput(flowInput);
         flowOutputReturns.add(flowOutput);
 
-        if (sObjectType == null || String.isBlank((rollupContext))) {
-          throw new IllegalArgumentException('SObject type: ' + sObjectType + ', or rollup operation: ' + rollupContext + ' were empty, exiting');
-        }
-
         for (SObject record : flowInput.recordsToRollup) {
           if (isFirstSObject) {
             isFirstSObject = false;
+            recordSObjectType = record.getSObjectType();
             fieldNames = record.getPopulatedFieldsAsMap().keySet();
           }
           calcItems.add(record);
@@ -256,14 +259,15 @@ public without sharing class Rollup implements System.Queueable {
           RollupFieldOnCalcItem__c = flowInput.rollupFieldOnCalcItem,
           LookupObject__c = flowInput.rollupSObjectName,
           LookupFieldOnCalcItem__c = flowInput.lookupFieldOnCalcItem,
+          LookupFieldOnLookupObject__c = flowInput.lookupFieldOnOpObject,
           RollupFieldOnLookupObject__c = flowInput.rollupFieldOnOpObject,
           RollupType__c = flowInput.rollupOperation,
           ChangedFieldsOnCalcItem__c = flowInput.calcItemChangedFields
         );
         rollups.add(rollupMetadata);
       }
-      oldRecords = getOldFlowRecords(oldRecords.keySet(), fieldNames, sObjectType);
-      getCalculator(rollups, sObjectType, rollupContext, calcItems, oldRecords, null).runCalc();
+      oldRecords = getOldFlowRecords(oldRecords.keySet(), fieldNames, recordSObjectType);
+      getCalculator(rollups, recordSObjectType, rollupContext, calcItems, oldRecords, null).runCalc();
     } catch (Exception ex) {
       for (FlowOutput flowOutput : flowOutputReturns) {
         flowOutput.IsSuccess = false;
@@ -435,7 +439,7 @@ public without sharing class Rollup implements System.Queueable {
     return oldRecordsMap != null
       ? oldRecordsMap
       : new Map<Id, SObject>(
-          Database.query('SELECT ' + String.join(new List<String>(fieldNames), ',') + 'FROM ' + String.valueOf(sObjectType) + 'WHERE Id = :currentRecords')
+          Database.query('SELECT ' + String.join(new List<String>(fieldNames), ',') + '\nFROM ' + String.valueOf(sObjectType) + '\nWHERE Id = :currentRecords')
         );
   }
 
