@@ -12,6 +12,8 @@ private class RollupTests {
     }
   }
 
+  /** Trigger tests */
+
   @isTest
   static void shouldNotRunForInvalidTriggerContext() {
     DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 50) });
@@ -157,24 +159,17 @@ private class RollupTests {
     System.assertEquals(1, updatedAcc.NumberOfEmployees, 'COUNT_DISTINCT AFTER_INSERT should count regardless of not pointing to a field based on CMDT');
   }
 
+  // up till this point, we have been testing broader functionality. Now we test different field types for success: time, date, datetime, string, illegal arg
+
+  /** Invocable tests */
+
   @isTest
   static void shouldBeInvokedSuccessfullyAfterInsertFromFlow() {
     List<Opportunity> opps = new List<Opportunity>{ new Opportunity(Amount = 1000) };
     DMLMock mock = getMock(opps);
-    Rollup.triggerRecords = null; // just to ensure this is coming from the correct place
-
-    Rollup.FlowInput flowInput = new Rollup.FlowInput();
-    flowInput.recordsToRollup = opps;
-    flowInput.lookupFieldOnCalcItem = 'AccountId';
-    flowInput.lookupFieldOnOpObject = 'Id';
-    flowInput.rollupContext = 'INSERT';
-    flowInput.rollupFieldOnCalcItem = 'Amount';
-    flowInput.rollupFieldOnOpObject = 'AnnualRevenue';
-    flowInput.rollupSObjectName = 'Account';
-    flowInput.rollupOperation = 'SUM';
 
     Test.startTest();
-    List<Rollup.FlowOutput> flowOutputs = Rollup.performRollup(new List<Rollup.FlowInput>{ flowInput });
+    List<Rollup.FlowOutput> flowOutputs = Rollup.performRollup(prepareFlowTest(opps, 'INSERT', 'SUM'));
     Test.stopTest();
 
     System.assertEquals(1, flowOutputs.size(), 'Flow ouputs were not provided');
@@ -185,7 +180,78 @@ private class RollupTests {
     Account updatedAcc = (Account) mock.Records[0];
     System.assertEquals(1000, updatedAcc.AnnualRevenue, 'SUM AFTER_INSERT from flow should match input Amount');
   }
-  // TODO: invocable tests for update/delete, test for object changed evaluator, rollups for time, date, datetime, string, boolean(??), illegal arg
+
+  @isTest
+  static void shouldBeInvokedSuccessfullyAfterSaveFromFlow() {
+    List<Opportunity> opps = new List<Opportunity>{ new Opportunity(Amount = 1000, Id = TestingUtils.generateId(Opportunity.SObjectType)) };
+    DMLMock mock = getMock(opps);
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>{ opps[0].Id => new Opportunity(Id = opps[0].Id, Amount = 250) };
+
+    Test.startTest();
+    List<Rollup.FlowOutput> flowOutputs = Rollup.performRollup(prepareFlowTest(opps, 'UPDATE', 'SUM'));
+    Test.stopTest();
+
+    System.assertEquals(1, flowOutputs.size(), 'Flow ouputs were not provided');
+    System.assertEquals('SUCCESS', flowOutputs[0].message);
+    System.assertEquals(true, flowOutputs[0].isSuccess);
+
+    System.assertEquals(1, mock.Records.size(), 'SUM AFTER_UPDATE from flow did not update accounts');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(750, updatedAcc.AnnualRevenue, 'SUM AFTER_UPDATE from flow should match diff for Amount');
+  }
+
+  @isTest
+  static void shouldBeInvokedSuccessfullyBeforeDeleteFromFlow() {
+    List<Opportunity> opps = new List<Opportunity>{ new Opportunity(Amount = 1000) };
+    DMLMock mock = getMock(opps);
+
+    Test.startTest();
+    List<Rollup.FlowOutput> flowOutputs = Rollup.performRollup(prepareFlowTest(opps, 'DELETE', 'SUM'));
+    Test.stopTest();
+
+    System.assertEquals(1, flowOutputs.size(), 'Flow ouputs were not provided');
+    System.assertEquals('SUCCESS', flowOutputs[0].message);
+    System.assertEquals(true, flowOutputs[0].isSuccess);
+
+    System.assertEquals(1, mock.Records.size(), 'SUM BEFORE_DELETE from flow did not update accounts');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(-1000, updatedAcc.AnnualRevenue, 'SUM BEFORE_DELETE from flow should subtract Amount from Account');
+  }
+
+  @isTest
+  static void shouldOnlyIncludeObjectChangedFieldsWhenSuppliedFromFlow() {
+    List<Opportunity> opps = new List<Opportunity>{
+      new Opportunity(Amount = 1000, Name = 'Acme opp', Id = TestingUtils.generateId(Opportunity.SObjectType)),
+      new Opportunity(Amount = 500, Name = 'Test name changed opp', Id = TestingUtils.generateId(Opportunity.SObjectType))
+    };
+    DMLMock mock = getMock(opps);
+
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>{
+      opps[0].Id => new Opportunity(Id = opps[0].Id, Amount = 250, Name = opps[0].Name),
+      opps[1].Id => new Opportunity(Id = opps[1].Id, Name = 'Name that does not match', Amount = 200)
+    };
+
+    List<Rollup.FlowInput> flowInputs = prepareFlowTest(opps, 'UPDATE', 'SUM');
+    flowInputs[0].calcItemChangedFields = 'Name, StageName';
+
+    Test.startTest();
+    List<Rollup.FlowOutput> flowOutputs = Rollup.performRollup(flowInputs);
+    Test.stopTest();
+
+    System.assertEquals(1, flowOutputs.size(), 'Flow ouputs were not provided');
+    System.assertEquals('SUCCESS', flowOutputs[0].message);
+    System.assertEquals(true, flowOutputs[0].isSuccess);
+
+    System.assertEquals(1, mock.Records.size(), 'SUM AFTER_UPDATE from flow did not update accounts');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(
+      300,
+      updatedAcc.AnnualRevenue,
+      'SUM AFTER_UPDATE from flow with changed fields should match diff for Amount based off of the Opp with Name changes'
+    );
+  }
+
+  /** Batch test */
 
   @isTest
   static void shouldRunSuccessfullyAsBatch() {
@@ -204,6 +270,8 @@ private class RollupTests {
     System.assertEquals('Completed', [SELECT Status FROM AsyncApexJob WHERE JobType = 'BatchApexWorker'].Status);
   }
 
+  //** Helpers */
+
   private static DMLMock getMock(List<SObject> records) {
     Account acc = [SELECT Id FROM Account];
     for (SObject record : records) {
@@ -216,5 +284,21 @@ private class RollupTests {
     Rollup.DML = mock;
 
     return mock;
+  }
+
+  private static List<Rollup.FlowInput> prepareFlowTest(List<SObject> records, String rollupContext, String rollupOperation) {
+    Rollup.triggerRecords = null; // just to ensure this is coming from the correct place
+
+    Rollup.FlowInput flowInput = new Rollup.FlowInput();
+    flowInput.recordsToRollup = records;
+    flowInput.lookupFieldOnCalcItem = 'AccountId';
+    flowInput.lookupFieldOnOpObject = 'Id';
+    flowInput.rollupContext = rollupContext;
+    flowInput.rollupFieldOnCalcItem = 'Amount';
+    flowInput.rollupFieldOnOpObject = 'AnnualRevenue';
+    flowInput.rollupSObjectName = 'Account';
+    flowInput.rollupOperation = rollupOperation;
+
+    return new List<Rollup.FlowInput>{ flowInput };
   }
 }

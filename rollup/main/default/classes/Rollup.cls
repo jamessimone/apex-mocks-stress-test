@@ -140,7 +140,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       SObject oldRecord = oldRecordsMap.get(calcSObject.Id);
       Boolean matches = this.changedFieldNames.isEmpty() || this.oldRecordsMap == null;
       for (String fieldName : this.changedFieldNames) {
-        if (calcSObject.get(fieldName) != oldRecord.get(fieldName)) {
+        // need to trim because list can be comma-separated with leading/trailing spaces
+        if (calcSObject.get(fieldName.trim()) != oldRecord.get(fieldName.trim())) {
           matches = true;
           break;
         }
@@ -541,7 +542,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
 
   private static String getFlowRollupContext(FlowInput firstInput) {
     String flowContext = String.isBlank(firstInput.rollupContext) ? 'INSERT' : firstInput.rollupContext;
-    return flowContext == 'INSERT' ? '' : flowContext;
+    return flowContext == 'INSERT' ? '' : flowContext + '_';
   }
 
   private static Map<Id, SObject> getOldFlowRecords(Set<Id> currentRecords, Set<String> fieldNames, SObjectType sObjectType) {
