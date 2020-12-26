@@ -75,7 +75,10 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     DELETE_COUNT_DISTINCT,
     COUNT,
     UPDATE_COUNT,
-    DELETE_COUNT
+    DELETE_COUNT,
+    MAX,
+    UPDATE_MAX,
+    DELETE_MAX
   } //AVG, MAX, MIN operations can be added as needed
 
   private Rollup() {
@@ -97,6 +100,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       innerRollup.eval
     );
     this.rollups = innerRollup.rollups;
+    this.isNoOp = this.rollups.isEmpty() == false;
   }
 
   private Rollup(
@@ -454,6 +458,27 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     Evaluator eval
   ) {
     return operateFromTrigger(countFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOperationObject, sumFieldOnOpOject, lookupSobjectType, Op.COUNT, eval);
+  }
+
+  public static Rollup maxFromTrigger(
+    SObjectField maxFieldOnCalcItem,
+    SObjectField lookupFieldOnCalcItem,
+    SObjectField lookupFieldOnOperationObject,
+    SObjectField countFieldOnOperationObject,
+    SObjectType lookupSobjectType
+  ) {
+    return maxFromTrigger(maxFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOperationObject, countFieldOnOperationObject, lookupSobjectType, null);
+  }
+
+  public static Rollup maxFromTrigger(
+    SObjectField maxFieldOnCalcItem,
+    SObjectField lookupFieldOnCalcItem,
+    SObjectField lookupFieldOnOperationObject,
+    SObjectField sumFieldOnOpOject,
+    SObjectType lookupSobjectType,
+    Evaluator eval
+  ) {
+    return operateFromTrigger(maxFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOperationObject, sumFieldOnOpOject, lookupSobjectType, Op.MAX, eval);
   }
 
   public static Rollup sumFromTrigger(
@@ -875,6 +900,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private virtual class DecimalRollupCalculator extends RollupCalculator {
+    private Boolean shouldShortCircuit = false;
     public DecimalRollupCalculator(Object priorVal) {
       // much as it pains me to duplicate the null check, it must be done; we can't reference instance methods till after the super() call
       super(priorVal == null ? 0 : priorVal);
@@ -897,6 +923,9 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
 
     public override void performRollup(Op operation, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
       Decimal returnVal = (Decimal) this.returnVal;
+      if (this.shouldShortCircuit) {
+        return;
+      }
       switch on operation {
         when SUM, COUNT {
           returnVal += this.getNumericValue(calcItem, operationField);
@@ -907,8 +936,41 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         when UPDATE_SUM, UPDATE_COUNT {
           returnVal += this.getNumericChangedValue(calcItem, operationField, oldCalcItems);
         }
+        when MAX {
+          Decimal numericValue = this.getNumericValue(calcItem, operationField);
+          if (numericValue > returnVal) {
+            returnVal = numericValue;
+          }
+        }
+        when UPDATE_MAX {
+          Decimal thisPriorVal = this.getNumericValue(oldCalcItems.get(calcItem.Id), operationField);
+          Decimal newVal = this.getNumericValue(calcItem, operationField);
+          if (thisPriorVal > 0 && thisPriorVal == returnVal && newVal < thisPriorVal) {
+            this.shouldShortCircuit = true;
+            this.returnVal = this.calculateNewAggregateValue(calcItem.Id, Op.MAX, operationField, calcItem.getSObjectType());
+            return;
+          } else if (newVal > returnVal) {
+            returnVal = newVal;
+          }
+        }
       }
       this.returnVal = returnVal;
+    }
+
+    private Decimal calculateNewAggregateValue(String excludedItem, Op operation, SObjectField operationField, SObjectType sObjectType) {
+      String alias = operation.name().toLowerCase() + 'field';
+      return (Decimal) Database.query(
+          'SELECT ' +
+          operation.name() +
+          '(' +
+          operationField +
+          ')' +
+          alias +
+          ' FROM ' +
+          sObjectType +
+          ' WHERE Id != :excludedItem'
+        )[0]
+        .get(alias);
     }
   }
 

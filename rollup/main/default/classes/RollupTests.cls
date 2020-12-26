@@ -160,6 +160,60 @@ private class RollupTests {
   }
 
   // up till this point, we have been testing broader functionality. Now we test different field types for success: time, date, datetime, string, illegal arg
+  @isTest
+  static void shouldMaxNumbersSuccessfullyAfterInsert() {
+    List<Opportunity> opps = new List<Opportunity>{
+      new Opportunity(Amount = 100, Id = TestingUtils.generateId(Opportunity.SObjectType)),
+      new Opportunity(Amount = 200, Id = TestingUtils.generateId(Opportunity.SObjectType))
+    };
+    DMLMock mock = getMock(opps);
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>{ opps[0].Id => new Opportunity(Id = opps[0].Id), opps[1].Id => new Opportunity(Id = opps[1].Id) };
+
+    Test.startTest();
+    Rollup.maxFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX AFTER_UPDATE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(200, updatedAcc.AnnualRevenue, 'MAX AFTER_UPDATE should take the maximum opportunity amount');
+  }
+
+  @isTest
+  static void shouldMaxNumbersSuccessfullyAfterUpdate() {
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 100), new Opportunity(Amount = 200) });
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+  }
+
+  @isTest
+  static void shouldMaxNumbersSuccessfullyAfterUpdateWhenUpdatedItemIsNoLongerMax() {
+    Account acc = [SELECT Id FROM Account];
+    acc.AnnualRevenue = 250;
+    update acc;
+
+    Opportunity opp = new Opportunity(Amount = 250, AccountId = acc.Id, Name = 'testOpp', StageName = 'something', CloseDate = System.today());
+    Opportunity secondOpp = new Opportunity(Amount = 175, AccountId = acc.Id, Name = 'testOppTwo', StageName = 'something', CloseDate = System.today());
+    List<Opportunity> originalOpps = new List<Opportunity>{ opp, secondOpp };
+    insert originalOpps;
+
+    Opportunity updatedOpp = opp.clone(true, true);
+    updatedOpp.Amount = 150;
+    List<Opportunity> opps = new List<Opportunity>{ updatedOpp };
+    Rollup.triggerRecords = opps;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>(originalOpps);
+    Rollup.shouldRun = true;
+    DMLMock mock = new DMLMock();
+    Rollup.DML = mock;
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+
+    Test.startTest();
+    Rollup.maxFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX AFTER_UPDATE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(175, updatedAcc.AnnualRevenue, 'MAX AFTER_UPDATE should take the maximum opportunity amount');
+  }
 
   /** Invocable tests */
 
