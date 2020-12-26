@@ -1,6 +1,6 @@
 public without sharing virtual class Rollup implements Database.Batchable<SObject> {
   @testVisible
-  private static Boolean shouldRun = Trigger.isExecuting || System.Request.getCurrent().getQuiddity() == Quiddity.INVOCABLE_ACTION;
+  private static Boolean shouldRun;
   @testVisible
   private static TriggerOperation triggerContext = Trigger.operationType;
   @testVisible
@@ -23,8 +23,10 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   private final Op op;
   private final Boolean isBatched;
 
-  // only non-final instance variable; can change for Batched rollups
+  // non-final instance variables
   private Boolean isNoOp;
+  private Map<SObjectType, Set<String>> lookupObjectToUniqueFieldNames;
+  private List<SObject> lookupItems;
 
   @testVisible
   private static DMLHelper DML {
@@ -37,12 +39,12 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     set;
   }
 
-  private List<Rollup> calculators {
+  private List<Rollup> rollups {
     get {
-      if (calculators == null) {
-        calculators = new List<Rollup>();
+      if (rollups == null) {
+        rollups = new List<Rollup>();
       }
-      return calculators;
+      return rollups;
     }
     set;
   }
@@ -138,7 +140,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     Boolean hasMoreThanOneTarget = false;
     SObjectType targetType;
     Map<String, Set<String>> queryCountsToLookupIds = new Map<String, Set<String>>();
-    for (Rollup rollup : this.calculators) {
+    for (Rollup rollup : this.rollups) {
       if (targetType == null) {
         targetType = rollup.lookupObj;
       } else if (rollup.lookupObj != targetType) {
@@ -174,12 +176,26 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
   }
 
-  public Database.QueryLocator start(Database.BatchableContext context) {
-    //TODO: infinite scaling
-    return null;
+  protected virtual List<SObject> getExistingLookupItems(Set<String> objIds, Rollup rollup, Set<String> uniqueQueryFieldNames) {
+    return this.lookupItems;
   }
 
-  public void execute(Database.BatchableContext context, List<SObject> scope) {
+  public Database.QueryLocator start(Database.BatchableContext context) {
+    // for batch, we know 100% for sure there's only 1 SObjectType / Set<String> in the map
+    this.getFieldNamesForRollups();
+    String query;
+    for (SObjectType sObjectType : this.lookupObjectToUniqueFieldNames.keySet()) {
+      query = this.getQueryString(sObjectType, lookupObjectToUniqueFieldNames.get(sObjectType), this.rollups[0].lookupFieldOnLookupObject);
+    }
+    return Database.getQueryLocator(query);
+  }
+
+  public void execute(Database.BatchableContext context, List<SObject> lookupItems) {
+    for (Rollup rollup : this.rollups) {
+      this.initializeRollupFieldDefaults(lookupItems, rollup);
+    }
+    this.lookupItems = lookupItems;
+    this.processAsync();
   }
 
   public void finish(Database.BatchableContext context) {
@@ -204,41 +220,16 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       super();
     }
 
+    protected override List<SObject> getExistingLookupItems(Set<String> objIds, Rollup rollup, Set<String> uniqueQueryFieldNames) {
+      // non-obvious coupling between "objIds" and the computed query string, which uses dynamic variable binding
+      String queryString = this.getQueryString(rollup.lookupObj, uniqueQueryFieldNames, rollup.lookupFieldOnLookupObject);
+      List<SObject> lookupItems = Database.query(queryString);
+      this.initializeRollupFieldDefaults(lookupItems, rollup);
+      return lookupItems;
+    }
+
     public void execute(System.QueueableContext qc) {
-      Map<String, SObject> updatedLookupRecords = new Map<String, SObject>();
-
-      Map<SObjectType, Set<String>> lookupObjectToUniqueFieldNames = new Map<SObjectType, Set<String>>();
-      for (Rollup calc : this.calculators) {
-        String fieldName = calc.opFieldOnLookupObject.getDescribe().getName();
-        if (lookupObjectToUniqueFieldNames.containsKey(calc.lookupObj)) {
-          lookupObjectToUniqueFieldNames.get(calc.lookupObj).add(fieldName);
-        } else {
-          Set<String> fieldNames = new Set<String>();
-          fieldNames.add(fieldName);
-          lookupObjectToUniqueFieldNames.put(calc.lookupObj, fieldNames);
-        }
-      }
-
-      for (Rollup calc : this.calculators) {
-        Map<String, List<SObject>> calcItemsByLookupField = this.getCalcItemsByLookupField(calc);
-        List<SObject> lookupItems = new List<SObject>();
-        Set<String> lookupItemKeys = new Set<String>(calcItemsByLookupField.keySet());
-        for (String key : calcItemsByLookupField.keySet()) {
-          if (updatedLookupRecords.containsKey(key)) {
-            lookupItemKeys.remove(key);
-            // this way, the updated values are persisted for each field
-            lookupItems.add(updatedLookupRecords.get(key));
-          }
-        }
-        lookupItems.addAll(this.getLookupItems(lookupItemKeys, calc, lookupObjectToUniqueFieldNames.get(calc.lookupObj)));
-        List<SObject> updatedRecords = this.getUpdatedLookupItemsByRollup(calc, calcItemsByLookupField, lookupItems);
-
-        for (SObject updatedRecord : updatedRecords) {
-          updatedLookupRecords.put(updatedRecord.Id, updatedRecord);
-        }
-      }
-
-      DML.doUpdate(updatedLookupRecords.values());
+      this.processAsync();
     }
   }
 
@@ -317,6 +308,9 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     description='Returns a single FlowOutput record with "SUCCESS" as the message if async rollup operation is enqueued successfully, and the encountered error otherwise'
   )
   public static List<FlowOutput> performRollup(List<FlowInput> flowInputs) {
+    if (shouldRun == null) {
+      shouldRun = System.Request.getCurrent().getQuiddity() == Quiddity.INVOCABLE_ACTION;
+    }
     List<FlowOutput> flowOutputReturns = new List<FlowOutput>();
     List<Rollup__mdt> rollups = new List<Rollup__mdt>();
     if (shouldRun == false) {
@@ -373,18 +367,18 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
    * Static public methods and helper methods
    */
 
-  public static void batch(Rollup calc, Rollup secondCalc) {
-    batch(new List<Rollup>{ calc, secondCalc });
+  public static void batch(Rollup rollup, Rollup secondRollup) {
+    batch(new List<Rollup>{ rollup, secondRollup });
   }
 
-  public static void batch(Rollup calc, Rollup secondCalc, Rollup thirdCalc) {
-    batch(new List<Rollup>{ calc, secondCalc, thirdCalc });
+  public static void batch(Rollup rollup, Rollup secondRollup, Rollup thirdRollup) {
+    batch(new List<Rollup>{ rollup, secondRollup, thirdRollup });
   }
 
-  public static void batch(List<Rollup> calcs) {
+  public static void batch(List<Rollup> rollups) {
     Rollup batchCalculator = new RollupAsyncProcessor();
-    for (Rollup calc : calcs) {
-      loadCalculators(calc, batchCalculator);
+    for (Rollup rollup : rollups) {
+      loadCalculators(rollup, batchCalculator);
     }
     batchCalculator.runCalc();
   }
@@ -572,7 +566,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
      * Frustratingly, the generic "put" operation for SObjects (necessary later) doesn't support these "full length" field names
      * (nor can you retrieve them from the "fieldNameToField" map below). Let's pare them down and get ready to rollup!
      */
-    Rollup batchCalc = new RollupAsyncProcessor();
+    Rollup batchRollup = new RollupAsyncProcessor();
     DescribeSObjectResult describeForSObject = sObjectType.getDescribe();
     Map<String, SObjectField> fieldNameToField = describeForSObject.fields.getMap();
     for (Rollup__mdt rollupMetadata : rollupOperations) {
@@ -604,14 +598,17 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         rollupOp,
         calcItems,
         oldCalcItems,
-        batchCalc,
+        batchRollup,
         eval
       );
     }
-    return batchCalc;
+    return batchRollup;
   }
 
   private static Boolean shouldRunFromTrigger() {
+    if (shouldRun == null) {
+      shouldRun = Trigger.isExecuting;
+    }
     // there are only three allowed trigger operations that qualify
     if (
       shouldRun &&
@@ -652,10 +649,10 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     Op rollupOp,
     List<SObject> calcItems,
     Map<Id, SObject> oldCalcItems,
-    Rollup batchCalc,
+    Rollup batchRollup,
     Evaluator eval
   ) {
-    Rollup calc = new RollupAsyncProcessor(
+    Rollup rollup = new RollupAsyncProcessor(
       calcItems,
       rollupFieldOnCalcItem,
       lookupFieldOnCalcItem,
@@ -666,18 +663,18 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       oldCalcItems,
       eval
     );
-    return loadCalculators(calc, batchCalc);
+    return loadCalculators(rollup, batchRollup);
   }
 
-  // TODO: when calculators are added to the list, we should also compare the hash for their records/oldRecordsMap
-  private static Rollup loadCalculators(Rollup calc, Rollup batchCalc) {
-    if (batchCalc != null && calc != null && calc.isNoOp == false) {
-      batchCalc.calculators.add(calc);
-      batchCalc.isNoOp = false;
-    } else if (calc != null && calc.isNoOp == false) {
-      calc.calculators.add(calc);
+  // TODO: when rollups are added to the list, we should also compare the hash for their records/oldRecordsMap
+  private static Rollup loadCalculators(Rollup rollup, Rollup batchRollup) {
+    if (batchRollup != null && rollup != null && rollup.isNoOp == false) {
+      batchRollup.rollups.add(rollup);
+      batchRollup.isNoOp = false;
+    } else if (rollup != null && rollup.isNoOp == false) {
+      rollup.rollups.add(rollup);
     }
-    return batchCalc != null ? batchCalc : calc;
+    return batchRollup != null ? batchRollup : rollup;
   }
 
   /** End static section, begin private instance methods */
@@ -692,10 +689,24 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     return applicableItems;
   }
 
-  private Map<String, List<SObject>> getCalcItemsByLookupField(Rollup calc) {
+  private void getFieldNamesForRollups() {
+    this.lookupObjectToUniqueFieldNames = new Map<SObjectType, Set<String>>();
+    for (Rollup rollup : this.rollups) {
+      String fieldName = rollup.opFieldOnLookupObject.getDescribe().getName();
+      if (lookupObjectToUniqueFieldNames.containsKey(rollup.lookupObj)) {
+        lookupObjectToUniqueFieldNames.get(rollup.lookupObj).add(fieldName);
+      } else {
+        Set<String> fieldNames = new Set<String>();
+        fieldNames.add(fieldName);
+        lookupObjectToUniqueFieldNames.put(rollup.lookupObj, fieldNames);
+      }
+    }
+  }
+
+  private Map<String, List<SObject>> getCalcItemsByLookupField(Rollup rollup) {
     Map<String, List<SObject>> lookupFieldToCalcItems = new Map<String, List<SObject>>();
-    for (SObject calcItem : calc.calcItems) {
-      String key = (String) calcItem.get(calc.lookupFieldOnCalcItem);
+    for (SObject calcItem : rollup.calcItems) {
+      String key = (String) calcItem.get(rollup.lookupFieldOnCalcItem);
       if (lookupFieldToCalcItems.containsKey(key) == false) {
         lookupFieldToCalcItems.put(key, new List<SObject>{ calcItem });
       } else {
@@ -705,23 +716,49 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     return lookupFieldToCalcItems;
   }
 
-  private List<SObject> getLookupItems(Set<String> objIds, Rollup calc, Set<String> uniqueQueryFieldNames) {
-    String queryString =
-      'SELECT Id, ' +
+  protected String getQueryString(SObjectType sObjectType, Set<String> uniqueQueryFieldNames, SObjectField lookupFieldOnLookupObject) {
+    return 'SELECT Id, ' +
       String.join(new List<String>(uniqueQueryFieldNames), ',') +
       '\nFROM ' +
-      calc.lookupObj +
+      sObjectType +
       '\nWHERE ' +
-      calc.lookupFieldOnLookupObject +
+      lookupFieldOnLookupObject +
       ' = :objIds';
-    List<SObject> lookupItems = Database.query(queryString);
+  }
+
+  protected void initializeRollupFieldDefaults(List<SObject> lookupItems, Rollup rollup) {
     // prior to returning, we need to ensure the default value for the rollup field is set
     for (SObject lookupItem : lookupItems) {
-      if (lookupItem.get(calc.opFieldOnLookupObject) == null) {
-        lookupItem.put(calc.opFieldOnLookupObject, this.getDefaultValue(calc.opFieldOnLookupObject));
+      if (lookupItem.get(rollup.opFieldOnLookupObject) == null) {
+        lookupItem.put(rollup.opFieldOnLookupObject, this.getDefaultValue(rollup.opFieldOnLookupObject));
       }
     }
-    return lookupItems;
+  }
+
+  protected void processAsync() {
+    this.getFieldNamesForRollups();
+    Map<String, SObject> updatedLookupRecords = new Map<String, SObject>();
+
+    for (Rollup rollup : this.rollups) {
+      Map<String, List<SObject>> calcItemsByLookupField = this.getCalcItemsByLookupField(rollup);
+      List<SObject> lookupItems = new List<SObject>();
+      Set<String> lookupItemKeys = new Set<String>(calcItemsByLookupField.keySet());
+      for (String lookupId : calcItemsByLookupField.keySet()) {
+        if (updatedLookupRecords.containsKey(lookupId)) {
+          lookupItemKeys.remove(lookupId);
+          // this way, the updated values are persisted for each field
+          lookupItems.add(updatedLookupRecords.get(lookupId));
+        }
+      }
+      lookupItems.addAll(this.getExistingLookupItems(lookupItemKeys, rollup, this.lookupObjectToUniqueFieldNames.get(rollup.lookupObj)));
+      List<SObject> updatedRecords = this.getUpdatedLookupItemsByRollup(rollup, calcItemsByLookupField, lookupItems);
+
+      for (SObject updatedRecord : updatedRecords) {
+        updatedLookupRecords.put(updatedRecord.Id, updatedRecord);
+      }
+    }
+
+    DML.doUpdate(updatedLookupRecords.values());
   }
 
   private Object getDefaultValue(SObjectField field) {
@@ -755,15 +792,15 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     return initializedDefault;
   }
 
-  private List<SObject> getUpdatedLookupItemsByRollup(Rollup calc, Map<String, List<SObject>> calcItemsByLookupField, List<SObject> lookupItems) {
+  private List<SObject> getUpdatedLookupItemsByRollup(Rollup rollup, Map<String, List<SObject>> calcItemsByLookupField, List<SObject> lookupItems) {
     List<SObject> recordsToUpdate = new List<SObject>();
     for (SObject lookupRecord : lookupItems) {
-      String key = (String) lookupRecord.get(calc.lookupFieldOnLookupObject);
+      String key = (String) lookupRecord.get(rollup.lookupFieldOnLookupObject);
       if (calcItemsByLookupField.containsKey(key)) {
         List<SObject> calcItems = calcItemsByLookupField.get(key);
-        Object priorVal = lookupRecord.get(calc.opFieldOnLookupObject);
-        Object newVal = this.getRollupVal(calc, calcItems, priorVal);
-        lookupRecord.put(calc.opFieldOnLookupObject, newVal);
+        Object priorVal = lookupRecord.get(rollup.opFieldOnLookupObject);
+        Object newVal = this.getRollupVal(rollup, calcItems, priorVal);
+        lookupRecord.put(rollup.opFieldOnLookupObject, newVal);
         recordsToUpdate.add(lookupRecord);
       }
     }
