@@ -2,6 +2,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   @testVisible
   private static Boolean shouldRun;
   @testVisible
+  private static Boolean shouldRunAsBatch = false;
+  @testVisible
   private static TriggerOperation triggerContext = Trigger.operationType;
   @testVisible
   private static List<SObject> triggerRecords;
@@ -21,6 +23,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   private final SObjectField opFieldOnLookupObject;
   private final SObjectType lookupObj;
   private final Op op;
+  private final Evaluator eval;
   private final Boolean isBatched;
 
   // non-final instance variables
@@ -81,6 +84,21 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     this.isNoOp = true;
   }
 
+  private Rollup(Rollup innerRollup) {
+    this(
+      innerRollup.calcItems,
+      innerRollup.opFieldOnCalcItem,
+      innerRollup.lookupFieldOnCalcItem,
+      innerRollup.lookupFieldOnLookupObject,
+      innerRollup.opFieldOnLookupObject,
+      innerRollup.lookupObj,
+      innerRollup.op,
+      innerRollup.oldCalcItems,
+      innerRollup.eval
+    );
+    this.rollups = innerRollup.rollups;
+  }
+
   private Rollup(
     List<SObject> calcItems,
     SObjectField opFieldOnCalcItem,
@@ -93,6 +111,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     Evaluator eval
   ) {
     this.calcItems = this.filter(calcItems, eval);
+    this.eval = eval;
     this.opFieldOnCalcItem = opFieldOnCalcItem;
     this.lookupFieldOnCalcItem = lookupFieldOnCalcItem;
     this.lookupFieldOnLookupObject = lookupFieldOnLookupObject;
@@ -166,9 +185,10 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       totalCountOfRecords += Database.countQuery(countQuery);
     }
 
-    if (totalCountOfRecords >= (Limits.getLimitDmlRows() / 3) && hasMoreThanOneTarget == false) {
+    Boolean shouldRunAsBatch = shouldRunAsBatch || (totalCountOfRecords >= (Limits.getLimitDmlRows() / 3) && hasMoreThanOneTarget == false);
+    if (shouldRunAsBatch) {
       // safe to batch because the QueryLocator will only return one type of SObject
-      // TODO: batchable
+      Database.executeBatch(new Rollup(this));
     } else if (totalCountOfRecords <= (Limits.getLimitDmlRows() / 2)) {
       System.enqueueJob(this);
     } else {
@@ -184,8 +204,12 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     // for batch, we know 100% for sure there's only 1 SObjectType / Set<String> in the map
     this.getFieldNamesForRollups();
     String query;
+    Set<String> objIds = new Set<String>();
+    for (Rollup rollup : this.rollups) {
+      objIds.addAll(this.getCalcItemsByLookupField(rollup).keySet());
+    }
     for (SObjectType sObjectType : this.lookupObjectToUniqueFieldNames.keySet()) {
-      query = this.getQueryString(sObjectType, lookupObjectToUniqueFieldNames.get(sObjectType), this.rollups[0].lookupFieldOnLookupObject);
+      query = this.getQueryString(sObjectType, this.lookupObjectToUniqueFieldNames.get(sObjectType), this.rollups[0].lookupFieldOnLookupObject);
     }
     return Database.getQueryLocator(query);
   }
@@ -681,6 +705,9 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
 
   private List<SObject> filter(List<SObject> calcItems, Evaluator eval) {
     List<SObject> applicableItems = new List<SObject>();
+    if (calcItems == null) {
+      return applicableItems;
+    }
     for (SObject calcItem : calcItems) {
       if (eval == null || eval.matches(calcItem)) {
         applicableItems.add(calcItem);

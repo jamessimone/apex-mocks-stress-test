@@ -187,6 +187,23 @@ private class RollupTests {
   }
   // TODO: invocable tests for update/delete, test for object changed evaluator, rollups for time, date, datetime, string, boolean(??), illegal arg
 
+  @isTest
+  static void shouldRunSuccessfullyAsBatch() {
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 1) });
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+    Rollup.shouldRunAsBatch = true;
+
+    Test.startTest();
+    Rollup.countFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated COUNT AFTER_INSERT');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(1, updatedAcc.AnnualRevenue, 'COUNT AFTER_INSERT should add when field is populated');
+    // validate that job ran as batch
+    System.assertEquals('Completed', [SELECT Status FROM AsyncApexJob WHERE JobType = 'BatchApexWorker'].Status);
+  }
+
   private static DMLMock getMock(List<SObject> records) {
     Account acc = [SELECT Id FROM Account];
     for (SObject record : records) {
