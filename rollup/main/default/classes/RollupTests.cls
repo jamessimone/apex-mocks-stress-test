@@ -500,7 +500,95 @@ private class RollupTests {
     System.assertEquals('beginning something', updatedAcc.AccountNumber, 'CONCAT BEFORE_DELETE should replace the outgoing string value with empty string');
   }
 
-  // Now we test different field types for success: time, date, datetime, string, illegal arg
+  @isTest
+  static void shouldAverageOnInsert() {
+    // average is a special case; even on insert, we have to also check for pre-existing records existing
+    Account acc = [SELECT Id, AnnualRevenue FROM Account];
+    acc.AnnualRevenue = 150000;
+    update acc;
+
+    Opportunity testOpp = new Opportunity(Amount = 100, Name = 'Pre-existing', StageName = 'random', CloseDate = System.today(), AccountId = acc.Id);
+    insert testOpp;
+
+    List<Opportunity> opps = new List<Opportunity>{
+      new Opportunity(Amount = 200000, Id = TestingUtils.generateId(Opportunity.SObjectType)),
+      new Opportunity(Amount = 200000, Id = TestingUtils.generateId(Opportunity.SObjectType))
+    };
+    DMLMock mock = getMock(opps);
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+
+    Test.startTest();
+    Rollup.averageFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated AVERAGE AFTER_INSERT');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(
+      (testOpp.Amount + opps[0].Amount + opps[1].Amount) / 3,
+      updatedAcc.AnnualRevenue,
+      'AVERAGE AFTER_INSERT should take into account all values'
+    );
+  }
+
+  @isTest
+  static void shouldAverageOnUpdate() {
+    Account acc = [SELECT Id FROM Account];
+
+    Opportunity testOpp = new Opportunity(Amount = 100, Name = 'Pre-existing', StageName = 'random', CloseDate = System.today(), AccountId = acc.Id);
+    insert testOpp;
+
+    List<Opportunity> opps = new List<Opportunity>{
+      new Opportunity(Amount = 200000, Id = TestingUtils.generateId(Opportunity.SObjectType)),
+      new Opportunity(Amount = 200000, Id = TestingUtils.generateId(Opportunity.SObjectType))
+    };
+    DMLMock mock = getMock(opps);
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>{
+      opps[0].Id => new Opportunity(Amount = 100000, Id = opps[0].Id),
+      opps[1].Id => new Opportunity(Amount = 100000, Id = opps[1].Id)
+    };
+
+    Test.startTest();
+    Rollup.averageFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated AVERAGE AFTER_UPDATE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(
+      (testOpp.Amount + opps[0].Amount + opps[1].Amount) / 3,
+      updatedAcc.AnnualRevenue,
+      'AVERAGE AFTER_UPDATE should take into account all values, including those from memory'
+    );
+  }
+
+  @isTest
+  static void shouldAverageOnDelete() {
+    Account acc = [SELECT Id FROM Account];
+
+    Opportunity testOpp = new Opportunity(Amount = 100, Name = 'Pre-existing', StageName = 'random', CloseDate = System.today(), AccountId = acc.Id);
+    insert testOpp;
+
+    List<Opportunity> opps = new List<Opportunity>{
+      new Opportunity(Amount = 200000, Id = TestingUtils.generateId(Opportunity.SObjectType)),
+      new Opportunity(Amount = 200000, Id = TestingUtils.generateId(Opportunity.SObjectType))
+    };
+    DMLMock mock = getMock(opps);
+    Rollup.triggerContext = TriggerOperation.BEFORE_DELETE;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>{
+      opps[0].Id => new Opportunity(Amount = 100000, Id = opps[0].Id),
+      opps[1].Id => new Opportunity(Amount = 100000, Id = opps[1].Id)
+    };
+
+    Test.startTest();
+    Rollup.averageFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated AVERAGE BEFORE_DELETE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(testOpp.Amount, updatedAcc.AnnualRevenue, 'AVERAGE BEFORE_DELETE should take into account only non-deleted values');
+  }
+
+  // Now we test different field types for success: time, date, datetime, illegal arg
 
   /** Invocable tests */
 

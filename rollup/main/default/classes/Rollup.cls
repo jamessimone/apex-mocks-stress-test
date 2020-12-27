@@ -13,8 +13,6 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   @testVisible
   private static List<Rollup__mdt> rollupMetadata;
 
-  private static final Datetime now = System.now();
-
   private final List<SObject> calcItems;
   private final Map<Id, SObject> oldCalcItems;
   private final SObjectField opFieldOnCalcItem;
@@ -72,7 +70,6 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
 
   private static final DefaultSObjectFieldInitializer FieldInitializer = new DefaultSObjectFieldInitializer();
 
-  // TODO: average functions differently because it has to consider the whole dataset
   private enum Op {
     SUM,
     UPDATE_SUM,
@@ -91,7 +88,10 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     DELETE_MIN,
     CONCAT,
     UPDATE_CONCAT,
-    DELETE_CONCAT
+    DELETE_CONCAT,
+    AVERAGE,
+    UPDATE_AVERAGE,
+    DELETE_AVERAGE
   }
 
   private Rollup() {
@@ -225,7 +225,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
      * for batch, we know 100% for sure there's only 1 SObjectType / Set<String> in the map.
      * NB: we have to call "getFieldNamesForRollups" in both the "start" and "execute" methods because
      * trying to use Database.Stateful on the top-level class ** in addition to Batchable ** results in the dreaded:
-     * "System.AsyncException: Queueable cannot be implemented with other system interfaces."
+     * "System.AsyncException: Queueable cannot be implemented with other system interfaces" exception
      * */
     this.getFieldNamesForRollups();
     String query;
@@ -439,6 +439,42 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       }
     }
     batchCalculator.runCalc();
+  }
+
+  public static Rollup averageFromTrigger(
+    SObjectField averageFieldOnCalcItem,
+    SObjectField lookupFieldOnCalcItem,
+    SObjectField lookupFieldOnOperationObject,
+    SObjectField averageFieldOnOperationObject,
+    SObjectType lookupSobjectType
+  ) {
+    return averageFromTrigger(
+      averageFieldOnCalcItem,
+      lookupFieldOnCalcItem,
+      lookupFieldOnOperationObject,
+      averageFieldOnOperationObject,
+      lookupSobjectType,
+      null
+    );
+  }
+
+  public static Rollup averageFromTrigger(
+    SObjectField averageFieldOnCalcItem,
+    SObjectField lookupFieldOnCalcItem,
+    SObjectField lookupFieldOnOperationObject,
+    SObjectField sumFieldOnOpOject,
+    SObjectType lookupSobjectType,
+    Evaluator eval
+  ) {
+    return operateFromTrigger(
+      averageFieldOnCalcItem,
+      lookupFieldOnCalcItem,
+      lookupFieldOnOperationObject,
+      sumFieldOnOpOject,
+      lookupSobjectType,
+      Op.AVERAGE,
+      eval
+    );
   }
 
   public static Rollup countDistinctFromTrigger(
@@ -848,7 +884,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   protected String getQueryString(SObjectType sObjectType, Set<String> uniqueQueryFieldNames, SObjectField lookupFieldOnLookupObject) {
-    return 'SELECT Id, ' +
+    return 'SELECT ' +
       String.join(new List<String>(uniqueQueryFieldNames), ',') +
       '\nFROM ' +
       sObjectType +
@@ -903,7 +939,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       if (calcItemsByLookupField.containsKey(key)) {
         List<SObject> calcItems = calcItemsByLookupField.get(key);
         Object priorVal = lookupRecord.get(rollup.opFieldOnLookupObject);
-        Object newVal = this.getRollupVal(rollup, calcItems, priorVal, rollup.opFieldOnLookupObject);
+        Object newVal = this.getRollupVal(rollup, calcItems, priorVal);
         lookupRecord.put(rollup.opFieldOnLookupObject, newVal);
         recordsToUpdate.add(lookupRecord);
       }
@@ -912,12 +948,17 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     return recordsToUpdate;
   }
 
-  private Object getRollupVal(Rollup rollup, List<SObject> calcItems, Object priorVal, SObjectField operationField) {
-    RollupCalculator rollupCalc = this.getRollupType(priorVal, rollup.op, operationField);
-    for (SObject calcItem : calcItems) {
-      rollupCalc.performRollup(rollup.op, priorVal, calcItem, rollup.oldCalcItems, rollup.opFieldOnCalcItem);
+  private Object getRollupVal(Rollup rollup, List<SObject> calcItems, Object priorVal) {
+    if (rollup.op.name().contains('AVERAGE')) {
+      // AVERAGE gets to be all special and have its own way of doing things
+      return new AverageRollupCalculator().calculateAverage(calcItems, rollup.opFieldOnCalcItem, rollup.op, priorVal);
+    } else {
+      RollupCalculator rollupCalc = this.getRollupType(priorVal, rollup.op, rollup.opFieldOnLookupObject);
+      for (SObject calcItem : calcItems) {
+        rollupCalc.performRollup(rollup.op, priorVal, calcItem, rollup.oldCalcItems, rollup.opFieldOnCalcItem);
+      }
+      return rollupCalc.getReturnValue();
     }
-    return rollupCalc.getReturnValue();
   }
 
   private RollupCalculator getRollupType(Object priorVal, Op operationType, SObjectField operationField) {
@@ -942,9 +983,10 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private class DefaultSObjectFieldInitializer {
+    private final Datetime defaultDateTime = Datetime.newInstance(1970, 1, 1);
     private Object getDefaultValue(SObjectField field) {
       // not surprisingly, "getDefaultValue" on the DescribeFieldResult returns null for fields without default values
-      // this is a shame - all types *should* have default values. Instead, we have the privilege of having to initialize these ourselves
+      // this is a shame - all types *should* have default values. Instead, we have the privilege of getting to initialize these ourselves
       Schema.DisplayType fieldType = field.getDescribe().getType();
       Object initializedDefault;
       switch on fieldType {
@@ -952,19 +994,19 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           initializedDefault = 0;
         }
         when DATETIME {
-          initializedDefault = now;
+          initializedDefault = this.defaultDateTime;
         }
         when DATE {
-          initializedDefault = now.dateGmt();
+          initializedDefault = this.defaultDateTime.dateGmt();
         }
         when TIME {
-          initializedDefault = now.timeGmt();
+          initializedDefault = this.defaultDateTime.timeGmt();
         }
         when STRING, PICKLIST, ID, TEXTAREA, URL, PHONE, EMAIL, MULTIPICKLIST, ENCRYPTEDSTRING {
           initializedDefault = '';
         }
         when else {
-          throw new IllegalArgumentException('Field specified invalid for rollup operation: ' + fieldType.name());
+          throw new IllegalArgumentException('Field: ' + field + ' of type: ' + fieldType.name() + ' specified invalid for rollup operation');
         }
       }
       return initializedDefault;
@@ -1166,6 +1208,34 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         }
       }
       this.returnVal = stringVal.normalizeSpace();
+    }
+  }
+
+  private class AverageRollupCalculator {
+    public Decimal calculateAverage(List<SObject> calcItems, SObjectField operationField, Op operationType, Object priorVal) {
+      Decimal average = (Decimal) priorVal;
+      if (calcItems.isEmpty()) {
+        return average;
+      }
+
+      SObjectType sObjectType = calcItems[0].getSobjectType();
+      Set<String> recordIds = new Map<String, SObject>(calcItems).keySet();
+      Integer countOfPreExistingItems = Database.countQuery('SELECT COUNT() FROM ' + sObjectType + ' WHERE Id != :recordIds');
+      Decimal oldSum = (Decimal) Database.query('SELECT SUM(' + operationField + ') sum1 FROM ' + sObjectType + ' WHERE Id != :recordIds')[0].get('sum1');
+
+      List<SObject> applicableCalcItems = operationType == Op.DELETE_AVERAGE ? new List<SObject>() : calcItems;
+      Decimal newSum = this.getSumFromCalcItems(applicableCalcItems, operationField);
+
+      average = (oldSum + newSum) / (countOfPreExistingItems + applicableCalcItems.size());
+      return average;
+    }
+
+    private Decimal getSumFromCalcItems(List<SObject> calcItems, SObjectField operationField) {
+      Decimal newSum = 0;
+      for (SObject calcItem : calcItems) {
+        newSum += (Decimal) calcItem.get(operationField);
+      }
+      return newSum;
     }
   }
 }
