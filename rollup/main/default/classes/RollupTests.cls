@@ -159,9 +159,26 @@ private class RollupTests {
     System.assertEquals(1, updatedAcc.NumberOfEmployees, 'COUNT_DISTINCT AFTER_INSERT should count regardless of not pointing to a field based on CMDT');
   }
 
-  // up till this point, we have been testing broader functionality. Now we test different field types for success: time, date, datetime, string, illegal arg
   @isTest
   static void shouldMaxNumbersSuccessfullyAfterInsert() {
+    List<Opportunity> opps = new List<Opportunity>{
+      new Opportunity(Amount = 100, Id = TestingUtils.generateId(Opportunity.SObjectType)),
+      new Opportunity(Amount = 200, Id = TestingUtils.generateId(Opportunity.SObjectType))
+    };
+    DMLMock mock = getMock(opps);
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+
+    Test.startTest();
+    Rollup.maxFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX AFTER_INSERT');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(200, updatedAcc.AnnualRevenue, 'MAX AFTER_INSERT should take the maximum opportunity amount');
+  }
+
+  @isTest
+  static void shouldMaxNumbersSuccessfullyAfterUpdate() {
     List<Opportunity> opps = new List<Opportunity>{
       new Opportunity(Amount = 100, Id = TestingUtils.generateId(Opportunity.SObjectType)),
       new Opportunity(Amount = 200, Id = TestingUtils.generateId(Opportunity.SObjectType))
@@ -177,12 +194,6 @@ private class RollupTests {
     System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX AFTER_UPDATE');
     Account updatedAcc = (Account) mock.Records[0];
     System.assertEquals(200, updatedAcc.AnnualRevenue, 'MAX AFTER_UPDATE should take the maximum opportunity amount');
-  }
-
-  @isTest
-  static void shouldMaxNumbersSuccessfullyAfterUpdate() {
-    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 100), new Opportunity(Amount = 200) });
-    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
   }
 
   @isTest
@@ -214,6 +225,36 @@ private class RollupTests {
     Account updatedAcc = (Account) mock.Records[0];
     System.assertEquals(175, updatedAcc.AnnualRevenue, 'MAX AFTER_UPDATE should take the maximum opportunity amount');
   }
+
+  @isTest
+  static void shouldMaxNumbersSuccessfullyOnDeleteWhenDeletedItemIsNoLongerMax() {
+    Account acc = [SELECT Id FROM Account];
+    acc.AnnualRevenue = 250;
+    update acc;
+
+    Opportunity opp = new Opportunity(Amount = 250, AccountId = acc.Id, Name = 'testOpp', StageName = 'something', CloseDate = System.today());
+    Opportunity secondOpp = new Opportunity(Amount = 175, AccountId = acc.Id, Name = 'testOppTwo', StageName = 'something', CloseDate = System.today());
+    List<Opportunity> originalOpps = new List<Opportunity>{ opp, secondOpp };
+    insert originalOpps;
+
+    Rollup.triggerRecords = originalOpps;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>(originalOpps);
+    Rollup.shouldRun = true;
+    DMLMock mock = new DMLMock();
+    Rollup.DML = mock;
+    Rollup.triggerContext = TriggerOperation.BEFORE_DELETE;
+
+    Test.startTest();
+    Rollup.maxFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX BEFORE_DELETE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(0, updatedAcc.AnnualRevenue, 'MAX BEFORE_DELETE should take the maximum opportunity amount');
+  }
+
+  // TODO: up till this point, we have been testing rollup functions using numeric types.
+  // Now we test different field types for success: time, date, datetime, string, illegal arg
 
   /** Invocable tests */
 

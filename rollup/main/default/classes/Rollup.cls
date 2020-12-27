@@ -548,6 +548,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       }
       when BEFORE_DELETE {
         rollupContext = 'DELETE_';
+        oldCalcItems = getOldTriggerRecordsMap();
       }
       when AFTER_INSERT {
         // for AFTER_INSERT, the base operation name will always be used
@@ -923,9 +924,17 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
 
     public override void performRollup(Op operation, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
       Decimal returnVal = (Decimal) this.returnVal;
-      if (this.shouldShortCircuit) {
+      if (this.shouldShortCircuit && operation !== Op.UPDATE_MAX) {
         return;
+      } else if (this.shouldShortCircuit && operation == Op.UPDATE_MAX) {
+        // re-maxing by way of query has occurred, but is it **correct**? If one of the other updated calcItems is numerically superior, assign the new max
+        Decimal newVal = this.getNumericValue(calcItem, operationField);
+        if (newVal > returnVal) {
+          this.returnVal = newVal;
+          return;
+        }
       }
+
       switch on operation {
         when SUM, COUNT {
           returnVal += this.getNumericValue(calcItem, operationField);
@@ -947,17 +956,28 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           Decimal newVal = this.getNumericValue(calcItem, operationField);
           if (thisPriorVal > 0 && thisPriorVal == returnVal && newVal < thisPriorVal) {
             this.shouldShortCircuit = true;
-            this.returnVal = this.calculateNewAggregateValue(calcItem.Id, Op.MAX, operationField, calcItem.getSObjectType());
+            Decimal maxValue = this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, Op.MAX, operationField, calcItem.getSObjectType());
+            this.returnVal = this.getDecimalOrDefault(maxValue);
             return;
           } else if (newVal > returnVal) {
             returnVal = newVal;
+          }
+        }
+        when DELETE_MAX {
+          // a much simpler case than updating, because we can simply exclude all items being deleted from the re-maxing operation
+          Decimal numericValue = this.getNumericValue(calcItem, operationField);
+          if (numericValue > 0 && numericValue == returnVal) {
+            this.shouldShortCircuit = true;
+            Decimal maxValue = this.calculateNewAggregateValue(new List<Id>(oldCalcItems.keySet()), Op.MAX, operationField, calcItem.getSObjectType());
+            this.returnVal = this.getDecimalOrDefault(maxValue);
+            return;
           }
         }
       }
       this.returnVal = returnVal;
     }
 
-    private Decimal calculateNewAggregateValue(String excludedItem, Op operation, SObjectField operationField, SObjectType sObjectType) {
+    private Decimal calculateNewAggregateValue(List<String> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
       String alias = operation.name().toLowerCase() + 'field';
       return (Decimal) Database.query(
           'SELECT ' +
@@ -968,7 +988,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           alias +
           ' FROM ' +
           sObjectType +
-          ' WHERE Id != :excludedItem'
+          ' WHERE Id != :excludedItems'
         )[0]
         .get(alias);
     }
