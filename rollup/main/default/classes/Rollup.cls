@@ -1,4 +1,5 @@
 public without sharing virtual class Rollup implements Database.Batchable<SObject> {
+  /** Test override / bookkeeping section. Normally I would do this through dependency injection, but this keeps things much simpler */
   @testVisible
   private static Boolean shouldRun;
   @testVisible
@@ -6,7 +7,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   @testVisible
   private static TriggerOperation triggerContext = Trigger.operationType;
   @testVisible
-  private static List<SObject> triggerRecords;
+  private static List<SObject> records;
   @testVisible
   private static Map<Id, SObject> oldRecordsMap;
   @testVisible
@@ -14,7 +15,6 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
 
   private static final Datetime now = System.now();
 
-  // TODO: perform caching on these; no need to duplicate the references for every rollup calculator if they're all using the same underyling dataset
   private final List<SObject> calcItems;
   private final Map<Id, SObject> oldCalcItems;
   private final SObjectField opFieldOnCalcItem;
@@ -31,6 +31,11 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   private Map<SObjectType, Set<String>> lookupObjectToUniqueFieldNames;
   private List<SObject> lookupItems;
 
+  /**
+   * receiving an interface/subclass from a property get/set (from the book "The Art Of Unit Testing") is an old technique; useful in limited contexts to get
+   * around the classic approach to dependency injection (such as in this case, when constructor-based DI isn't possible). It's more palatable in Apex than
+   * in many other languages, as a matter of fact - this is because the @testVisible annotation enforces for us the override only being possible while testing
+   */
   @testVisible
   private static DMLHelper DML {
     get {
@@ -78,8 +83,11 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     DELETE_COUNT,
     MAX,
     UPDATE_MAX,
-    DELETE_MAX
-  } //AVG, MAX, MIN operations can be added as needed
+    DELETE_MAX,
+    MIN,
+    UPDATE_MIN,
+    DELETE_MIN
+  }
 
   private Rollup() {
     this.isBatched = true;
@@ -155,6 +163,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   public void runCalc() {
+    this.isNoOp = this.rollups.isEmpty();
     if (this.isNoOp) {
       return;
     }
@@ -176,7 +185,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         uniqueLookupFields.add((String) calcItem.get(rollup.lookupFieldOnCalcItem));
       }
 
-      String countQuery = 'SELECT Count() FROM ' + String.valueOf(rollup.lookupObj) + ' WHERE Id = : objIds';
+      String countQuery = 'SELECT Count() FROM ' + String.valueOf(rollup.lookupObj) + ' WHERE Id = :objIds';
       if (queryCountsToLookupIds.containsKey(countQuery)) {
         queryCountsToLookupIds.get(countQuery).addAll(uniqueLookupFields);
       } else {
@@ -190,6 +199,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       totalCountOfRecords += Database.countQuery(countQuery);
     }
 
+    // TODO: implement RollupLimit__mdt to force batch/queueable and/or tweak the limits here
     Boolean shouldRunAsBatch = shouldRunAsBatch || (totalCountOfRecords >= (Limits.getLimitDmlRows() / 3) && hasMoreThanOneTarget == false);
     if (shouldRunAsBatch) {
       // safe to batch because the QueryLocator will only return one type of SObject
@@ -250,6 +260,9 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
 
     protected override List<SObject> getExistingLookupItems(Set<String> objIds, Rollup rollup, Set<String> uniqueQueryFieldNames) {
+      if (objIds.isEmpty()) {
+        return new List<SObject>();
+      }
       // non-obvious coupling between "objIds" and the computed query string, which uses dynamic variable binding
       String queryString = this.getQueryString(rollup.lookupObj, uniqueQueryFieldNames, rollup.lookupFieldOnLookupObject);
       List<SObject> lookupItems = Database.query(queryString);
@@ -276,7 +289,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     @InvocableVariable(label='Rollup target\'s SObject Name' description='The API Name of the SObject where the rollup value will be stored.' required=true)
     public String rollupSObjectName;
 
-    @InvocableVariable(label='Rollup Operation' description='SUM, COUNT, COUNT_DISTINCT, MAX, MIN' required=true)
+    @InvocableVariable(label='Rollup Operation' description='SUM, COUNT, COUNT_DISTINCT, MAX, MIN, AVG' required=true)
     public String rollupOperation;
 
     @InvocableVariable(label='Rollup Context' description='INSERT, UPDATE, or DELETE' required=true)
@@ -359,6 +372,10 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         FlowOutput flowOutput = new FlowOutput(flowInput);
         flowOutputReturns.add(flowOutput);
 
+        if (flowInput.recordsToRollup.isEmpty()) {
+          continue;
+        }
+
         for (SObject record : flowInput.recordsToRollup) {
           if (isFirstSObject) {
             isFirstSObject = false;
@@ -407,7 +424,9 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   public static void batch(List<Rollup> rollups) {
     Rollup batchCalculator = new RollupAsyncProcessor();
     for (Rollup rollup : rollups) {
-      loadCalculators(rollup, batchCalculator);
+      for (Rollup innerRollup : rollup.rollups) {
+        loadCalculators(innerRollup, batchCalculator);
+      }
     }
     batchCalculator.runCalc();
   }
@@ -479,6 +498,27 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     Evaluator eval
   ) {
     return operateFromTrigger(maxFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOperationObject, sumFieldOnOpOject, lookupSobjectType, Op.MAX, eval);
+  }
+
+  public static Rollup minFromTrigger(
+    SObjectField maxFieldOnCalcItem,
+    SObjectField lookupFieldOnCalcItem,
+    SObjectField lookupFieldOnOperationObject,
+    SObjectField countFieldOnOperationObject,
+    SObjectType lookupSobjectType
+  ) {
+    return minFromTrigger(maxFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOperationObject, countFieldOnOperationObject, lookupSobjectType, null);
+  }
+
+  public static Rollup minFromTrigger(
+    SObjectField maxFieldOnCalcItem,
+    SObjectField lookupFieldOnCalcItem,
+    SObjectField lookupFieldOnOperationObject,
+    SObjectField sumFieldOnOpOject,
+    SObjectType lookupSobjectType,
+    Evaluator eval
+  ) {
+    return operateFromTrigger(maxFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOperationObject, sumFieldOnOpOject, lookupSobjectType, Op.MIN, eval);
   }
 
   public static Rollup sumFromTrigger(
@@ -583,7 +623,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private static List<Rollup__mdt> getTriggerRollupMetadata(SObjectType sObjectType) {
-    // TODO: after Spring 21 is released, can just call Rollup__mdt.getAll();
+    // Even after Spring '21, can't call .getAll here because the ApiName restriction would disallow multiple rules per SObject
     return rollupMetadata != null
       ? rollupMetadata
       : [
@@ -673,8 +713,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private static List<SObject> getTriggerRecords() {
-    if (triggerRecords != null) {
-      return triggerRecords;
+    if (records != null) {
+      return records;
     }
     return Trigger.isDelete ? Trigger.old : Trigger.new;
   }
@@ -717,11 +757,9 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     return loadCalculators(rollup, batchRollup);
   }
 
-  // TODO: when rollups are added to the list, we should also compare the hash for their records/oldRecordsMap
   private static Rollup loadCalculators(Rollup rollup, Rollup batchRollup) {
     if (batchRollup != null && rollup != null && rollup.isNoOp == false) {
       batchRollup.rollups.add(rollup);
-      batchRollup.isNoOp = false;
     } else if (rollup != null && rollup.isNoOp == false) {
       rollup.rollups.add(rollup);
     }
@@ -800,8 +838,12 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       for (String lookupId : calcItemsByLookupField.keySet()) {
         if (updatedLookupRecords.containsKey(lookupId)) {
           lookupItemKeys.remove(lookupId);
-          // this way, the updated values are persisted for each field
-          lookupItems.add(updatedLookupRecords.get(lookupId));
+          // this way, the updated values are persisted for each field, and the default values are initialized
+          SObject updatedLookupObject = updatedLookupRecords.get(lookupId);
+          if(updatedLookupObject.get(rollup.opFieldOnLookupObject) == null) {
+            updatedLookupObject.put(rollup.opFieldOnLookupObject, this.getDefaultValue(rollup.opFieldOnLookupObject));
+          }
+          lookupItems.add(updatedLookupObject);
         }
       }
       lookupItems.addAll(this.getExistingLookupItems(lookupItemKeys, rollup, this.lookupObjectToUniqueFieldNames.get(rollup.lookupObj)));
@@ -824,9 +866,6 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       when CURRENCY, DOUBLE, INTEGER, LONG, PERCENT {
         initializedDefault = 0;
       }
-      when BOOLEAN {
-        initializedDefault = false;
-      }
       when DATETIME {
         initializedDefault = now;
       }
@@ -837,7 +876,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         initializedDefault = now.timeGmt();
       }
       when STRING, PICKLIST, ID, TEXTAREA, URL, PHONE, EMAIL, MULTIPICKLIST, ENCRYPTEDSTRING {
-        initializedDefault = '';
+        initializedDefault = ''; // TODO: concat operations
       }
       when else {
         throw new IllegalArgumentException('Field specified invalid for rollup operation: ' + fieldType.name());
@@ -924,15 +963,24 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
 
     public override void performRollup(Op operation, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
       Decimal returnVal = (Decimal) this.returnVal;
-      if (this.shouldShortCircuit && operation !== Op.UPDATE_MAX) {
-        return;
-      } else if (this.shouldShortCircuit && operation == Op.UPDATE_MAX) {
-        // re-maxing by way of query has occurred, but is it **correct**? If one of the other updated calcItems is numerically superior, assign the new max
-        Decimal newVal = this.getNumericValue(calcItem, operationField);
-        if (newVal > returnVal) {
-          this.returnVal = newVal;
-          return;
+      if (this.shouldShortCircuit) {
+        switch on operation {
+          when UPDATE_MAX {
+            // re-maxing by way of query has occurred, but is it **correct**? If one of the other updated calcItems is numerically superior, assign the new max
+            Decimal newVal = this.getNumericValue(calcItem, operationField);
+            if (newVal > returnVal) {
+              this.returnVal = newVal;
+            }
+          }
+          when UPDATE_MIN {
+            // re-"min"-ing has occurred by way of query, but is an in-memory calcItem even less?
+            Decimal newVal = this.getNumericValue(calcItem, operationField);
+            if (newVal < returnVal) {
+              this.returnVal = newVal;
+            }
+          }
         }
+        return;
       }
 
       switch on operation {
@@ -946,31 +994,51 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           returnVal += this.getNumericChangedValue(calcItem, operationField, oldCalcItems);
         }
         when MAX {
+          // if only expression operators were themselves classes in Apex. the code for MAX/MIN can only be shared
+          // on update routes; the only difference in logic is the greater than and less than signs
           Decimal numericValue = this.getNumericValue(calcItem, operationField);
-          if (numericValue > returnVal) {
+          if (numericValue > returnVal || returnVal == 0) {
             returnVal = numericValue;
           }
         }
         when UPDATE_MAX {
           Decimal thisPriorVal = this.getNumericValue(oldCalcItems.get(calcItem.Id), operationField);
           Decimal newVal = this.getNumericValue(calcItem, operationField);
-          if (thisPriorVal > 0 && thisPriorVal == returnVal && newVal < thisPriorVal) {
+          if (thisPriorVal != 0 && thisPriorVal == returnVal && newVal < thisPriorVal) {
             this.shouldShortCircuit = true;
-            Decimal maxValue = this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, Op.MAX, operationField, calcItem.getSObjectType());
+            Decimal maxValue = this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
             this.returnVal = this.getDecimalOrDefault(maxValue);
             return;
           } else if (newVal > returnVal) {
             returnVal = newVal;
           }
         }
-        when DELETE_MAX {
-          // a much simpler case than updating, because we can simply exclude all items being deleted from the re-maxing operation
+        when DELETE_MAX, DELETE_MIN {
+          // a much simpler case than updating, because we can simply exclude all items being deleted from the re-calc operation
           Decimal numericValue = this.getNumericValue(calcItem, operationField);
-          if (numericValue > 0 && numericValue == returnVal) {
+          if (numericValue == returnVal && returnVal != 0) {
             this.shouldShortCircuit = true;
-            Decimal maxValue = this.calculateNewAggregateValue(new List<Id>(oldCalcItems.keySet()), Op.MAX, operationField, calcItem.getSObjectType());
+            Decimal maxValue = this.calculateNewAggregateValue(new List<Id>(oldCalcItems.keySet()), operation, operationField, calcItem.getSObjectType());
             this.returnVal = this.getDecimalOrDefault(maxValue);
             return;
+          }
+        }
+        when MIN {
+          Decimal numericValue = this.getNumericValue(calcItem, operationField);
+          if (numericValue < returnVal || returnVal == 0) {
+            returnVal = numericValue;
+          }
+        }
+        when UPDATE_MIN {
+          Decimal thisPriorVal = this.getNumericValue(oldCalcItems.get(calcItem.Id), operationField);
+          Decimal newVal = this.getNumericValue(calcItem, operationField);
+          if (thisPriorVal != 0 && thisPriorVal == returnVal && newVal > thisPriorVal) {
+            this.shouldShortCircuit = true;
+            Decimal minValue = this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
+            this.returnVal = this.getDecimalOrDefault(minValue);
+            return;
+          } else if (newVal < returnVal || returnVal == 0) {
+            returnVal = newVal;
           }
         }
       }
@@ -978,19 +1046,10 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
 
     private Decimal calculateNewAggregateValue(List<String> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
-      String alias = operation.name().toLowerCase() + 'field';
-      return (Decimal) Database.query(
-          'SELECT ' +
-          operation.name() +
-          '(' +
-          operationField +
-          ')' +
-          alias +
-          ' FROM ' +
-          sObjectType +
-          ' WHERE Id != :excludedItems'
-        )[0]
-        .get(alias);
+      String operationName = operation.name().substringAfter('_');
+      String alias = operationName.toLowerCase() + 'field';
+      String query = 'SELECT ' + operationName + '(' + operationField + ')' + alias + ' FROM ' + sObjectType + ' WHERE Id != :excludedItems';
+      return (Decimal) Database.query(query)[0].get(alias);
     }
   }
 

@@ -6,7 +6,7 @@ private class RollupTests {
   }
 
   private class DMLMock extends Rollup.DMLHelper {
-    public List<SObject> Records { get; private set; }
+    public List<SObject> Records = new List<SObject>();
     public override void doUpdate(List<SObject> recordsToUpdate) {
       this.Records = recordsToUpdate;
     }
@@ -160,6 +160,33 @@ private class RollupTests {
   }
 
   @isTest
+  static void shouldBatchTwoOperations() {
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 100) });
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+
+    Test.startTest();
+    Rollup.batch(
+      Rollup.countDistinctFromTrigger(Opportunity.AccountId, Account.Id, Account.NumberOfEmployees, Account.SObjectType),
+      Rollup.sumFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType)
+    );
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated batch AFTER_INSERT');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(100, updatedAcc.AnnualRevenue, 'SUM AFTER_INSERT should count when the field is present on the calc item batched');
+    System.assertEquals(
+      1,
+      updatedAcc.NumberOfEmployees,
+      'COUNT_DISTINCT AFTER_INSERT should count regardless of not pointing to a field based on the batch operation'
+    );
+  }
+
+  @isTest
+  static void shouldBatchThreeOperations() {
+    //TODO: fix me
+  }
+
+  @isTest
   static void shouldMaxNumbersSuccessfullyAfterInsert() {
     List<Opportunity> opps = new List<Opportunity>{
       new Opportunity(Amount = 100, Id = TestingUtils.generateId(Opportunity.SObjectType)),
@@ -202,7 +229,7 @@ private class RollupTests {
     acc.AnnualRevenue = 250;
     update acc;
 
-    Opportunity opp = new Opportunity(Amount = 250, AccountId = acc.Id, Name = 'testOpp', StageName = 'something', CloseDate = System.today());
+    Opportunity opp = new Opportunity(Amount = acc.AnnualRevenue, AccountId = acc.Id, Name = 'testOpp', StageName = 'something', CloseDate = System.today());
     Opportunity secondOpp = new Opportunity(Amount = 175, AccountId = acc.Id, Name = 'testOppTwo', StageName = 'something', CloseDate = System.today());
     List<Opportunity> originalOpps = new List<Opportunity>{ opp, secondOpp };
     insert originalOpps;
@@ -210,7 +237,7 @@ private class RollupTests {
     Opportunity updatedOpp = opp.clone(true, true);
     updatedOpp.Amount = 150;
     List<Opportunity> opps = new List<Opportunity>{ updatedOpp };
-    Rollup.triggerRecords = opps;
+    Rollup.records = opps;
     Rollup.oldRecordsMap = new Map<Id, Opportunity>(originalOpps);
     Rollup.shouldRun = true;
     DMLMock mock = new DMLMock();
@@ -223,7 +250,39 @@ private class RollupTests {
 
     System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX AFTER_UPDATE');
     Account updatedAcc = (Account) mock.Records[0];
-    System.assertEquals(175, updatedAcc.AnnualRevenue, 'MAX AFTER_UPDATE should take the maximum opportunity amount');
+    System.assertEquals(secondOpp.Amount, updatedAcc.AnnualRevenue, 'MAX AFTER_UPDATE should take the maximum opportunity amount');
+  }
+
+  @isTest
+  static void shouldTakeIntoAccountInMemorySObjectsWhenUpdatedItemIsNoLongerMax() {
+    Account acc = [SELECT Id FROM Account];
+    acc.AnnualRevenue = 250;
+    update acc;
+
+    Opportunity opp = new Opportunity(Amount = acc.AnnualRevenue, AccountId = acc.Id, Name = 'testOpp', StageName = 'something', CloseDate = System.today());
+    Opportunity secondOpp = new Opportunity(Amount = 175, AccountId = acc.Id, Name = 'testOppTwo', StageName = 'something', CloseDate = System.today());
+    List<Opportunity> originalOpps = new List<Opportunity>{ opp, secondOpp };
+    insert originalOpps;
+
+    Opportunity updatedOpp = opp.clone(true, true);
+    updatedOpp.Amount = 150;
+    Opportunity updatedSecondOpp = secondOpp.clone(true, true);
+    updatedSecondOpp.Amount = secondOpp.Amount + 30; // the amount is really unimportant; that it doesn't match what's in the database is
+    List<Opportunity> opps = new List<Opportunity>{ updatedOpp, updatedSecondOpp };
+    Rollup.records = opps;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>(originalOpps);
+    Rollup.shouldRun = true;
+    DMLMock mock = new DMLMock();
+    Rollup.DML = mock;
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+
+    Test.startTest();
+    Rollup.maxFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX AFTER_UPDATE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(updatedSecondOpp.Amount, updatedAcc.AnnualRevenue, 'MAX AFTER_UPDATE should take the maximum opportunity amount');
   }
 
   @isTest
@@ -237,7 +296,7 @@ private class RollupTests {
     List<Opportunity> originalOpps = new List<Opportunity>{ opp, secondOpp };
     insert originalOpps;
 
-    Rollup.triggerRecords = originalOpps;
+    Rollup.records = originalOpps;
     Rollup.oldRecordsMap = new Map<Id, Opportunity>(originalOpps);
     Rollup.shouldRun = true;
     DMLMock mock = new DMLMock();
@@ -251,6 +310,132 @@ private class RollupTests {
     System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX BEFORE_DELETE');
     Account updatedAcc = (Account) mock.Records[0];
     System.assertEquals(0, updatedAcc.AnnualRevenue, 'MAX BEFORE_DELETE should take the maximum opportunity amount');
+  }
+
+  @isTest
+  static void shouldMinNumbersSuccessfullyAfterInsert() {
+    List<Opportunity> opps = new List<Opportunity>{
+      new Opportunity(Amount = 100, Id = TestingUtils.generateId(Opportunity.SObjectType)),
+      new Opportunity(Amount = 200, Id = TestingUtils.generateId(Opportunity.SObjectType))
+    };
+    DMLMock mock = getMock(opps);
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+
+    Test.startTest();
+    Rollup.minFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN AFTER_INSERT');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(100, updatedAcc.AnnualRevenue, 'MIN AFTER_INSERT should take the minimum opportunity amount');
+  }
+
+  @isTest
+  static void shouldMinNumbersSuccessfullyAfterUpdate() {
+    List<Opportunity> opps = new List<Opportunity>{
+      new Opportunity(Amount = 100, Id = TestingUtils.generateId(Opportunity.SObjectType)),
+      new Opportunity(Amount = 200, Id = TestingUtils.generateId(Opportunity.SObjectType))
+    };
+    DMLMock mock = getMock(opps);
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>{ opps[0].Id => new Opportunity(Id = opps[0].Id), opps[1].Id => new Opportunity(Id = opps[1].Id) };
+
+    Test.startTest();
+    Rollup.minFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN AFTER_UPDATE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(100, updatedAcc.AnnualRevenue, 'MIN AFTER_UPDATE should take the minimum opportunity amount');
+  }
+
+  @isTest
+  static void shouldMinNumbersSuccessfullyAfterUpdateWhenUpdatedItemIsNoLongerMin() {
+    Account acc = [SELECT Id FROM Account];
+    acc.AnnualRevenue = 150;
+    update acc;
+
+    Opportunity opp = new Opportunity(Amount = 150, AccountId = acc.Id, Name = 'testOpp', StageName = 'something', CloseDate = System.today());
+    Opportunity secondOpp = new Opportunity(Amount = 175, AccountId = acc.Id, Name = 'testOppTwo', StageName = 'something', CloseDate = System.today());
+    List<Opportunity> originalOpps = new List<Opportunity>{ opp, secondOpp };
+    insert originalOpps;
+
+    Opportunity updatedOpp = opp.clone(true, true);
+    updatedOpp.Amount = 200;
+    List<Opportunity> opps = new List<Opportunity>{ updatedOpp };
+    Rollup.records = opps;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>(originalOpps);
+    Rollup.shouldRun = true;
+    DMLMock mock = new DMLMock();
+    Rollup.DML = mock;
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+
+    Test.startTest();
+    Rollup.minFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN AFTER_UPDATE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(175, updatedAcc.AnnualRevenue, 'MIN AFTER_UPDATE should take the minimum opportunity amount');
+  }
+
+  @isTest
+  static void shouldTakeIntoAccountInMemorySObjectsWhenUpdatedItemIsNoLongerMin() {
+    Account acc = [SELECT Id FROM Account];
+    acc.AnnualRevenue = 150;
+    update acc;
+
+    Opportunity opp = new Opportunity(Amount = acc.AnnualRevenue, AccountId = acc.Id, Name = 'testOpp', StageName = 'something', CloseDate = System.today());
+    Opportunity secondOpp = new Opportunity(Amount = 175, AccountId = acc.Id, Name = 'testOppTwo', StageName = 'something', CloseDate = System.today());
+    List<Opportunity> originalOpps = new List<Opportunity>{ opp, secondOpp };
+    insert originalOpps;
+
+    Opportunity updatedOpp = opp.clone(true, true);
+    updatedOpp.Amount = 150;
+    Opportunity updatedSecondOpp = secondOpp.clone(true, true);
+    updatedSecondOpp.Amount = secondOpp.Amount - 30; // the amount is really unimportant; that it doesn't match what's in the database is
+    List<Opportunity> opps = new List<Opportunity>{ updatedOpp, updatedSecondOpp };
+    Rollup.records = opps;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>(originalOpps);
+    Rollup.shouldRun = true;
+    DMLMock mock = new DMLMock();
+    Rollup.DML = mock;
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+
+    Test.startTest();
+    Rollup.minFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN AFTER_UPDATE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(updatedSecondOpp.Amount, updatedAcc.AnnualRevenue, 'MIN AFTER_UPDATE should take the min opportunity amount');
+  }
+
+  @isTest
+  static void shouldMinNumbersSuccessfullyOnDeleteWhenDeletedItemIsNoLongerMax() {
+    Account acc = [SELECT Id FROM Account];
+    acc.AnnualRevenue = 150;
+    update acc;
+
+    Opportunity opp = new Opportunity(Amount = 150, AccountId = acc.Id, Name = 'testOpp', StageName = 'something', CloseDate = System.today());
+    Opportunity secondOpp = new Opportunity(Amount = 175, AccountId = acc.Id, Name = 'testOppTwo', StageName = 'something', CloseDate = System.today());
+    List<Opportunity> originalOpps = new List<Opportunity>{ opp, secondOpp };
+    insert originalOpps;
+
+    Rollup.records = new List<Opportunity>{ opp };
+    Rollup.oldRecordsMap = new Map<Id, SObject>(Rollup.records);
+    Rollup.shouldRun = true;
+    DMLMock mock = new DMLMock();
+    Rollup.DML = mock;
+    Rollup.triggerContext = TriggerOperation.BEFORE_DELETE;
+
+    Test.startTest();
+    Rollup.minFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN BEFORE_DELETE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(175, updatedAcc.AnnualRevenue, 'MIN BEFORE_DELETE should take the minimum opportunity amount');
   }
 
   // TODO: up till this point, we have been testing rollup functions using numeric types.
@@ -346,6 +531,44 @@ private class RollupTests {
     );
   }
 
+  @isTest
+  static void shouldReportSuccessWhenFlowPassesNoRecords() {
+    List<Opportunity> opps = new List<Opportunity>();
+    Rollup.shouldRun = true;
+    Rollup.records = opps;
+
+    Test.startTest();
+    List<Rollup.FlowOutput> flowOutputs = Rollup.performRollup(prepareFlowTest(opps, 'INSERT', 'SUM'));
+    Test.stopTest();
+
+    System.assertEquals(1, flowOutputs.size(), 'Flow ouputs were not provided');
+    System.assertEquals(true, flowOutputs[0].isSuccess);
+  }
+
+  @isTest
+  static void shouldReportFailureWhenExceptionIsThrown() {
+    List<OpportunityHistory> history = new List<OpportunityHistory>{ new OpportunityHistory() };
+    Rollup.shouldRun = true;
+    Rollup.records = history;
+
+    Test.startTest();
+    // prepareFlowTest sets us up for a failure with a field that doesn't exist on OpportunityHistory
+    List<Rollup.FlowOutput> flowOutputs = Rollup.performRollup(prepareFlowTest(history, 'INSERT', 'SUM'));
+    Test.stopTest();
+
+    System.assertEquals(1, flowOutputs.size(), 'Flow ouputs were not provided');
+    System.assertEquals(false, flowOutputs[0].isSuccess);
+  }
+
+  @isTest
+  static void shouldReturnEmptyIfFlowIsNotRunning() {
+    Test.startTest();
+    List<Rollup.FlowOutput> flowOutputs = Rollup.performRollup(prepareFlowTest(new List<SObject>(), 'INSERT', 'SUM'));
+    Test.stopTest();
+
+    System.assertEquals(0, flowOutputs.size());
+  }
+
   /** Batch test */
 
   @isTest
@@ -373,7 +596,7 @@ private class RollupTests {
       record.put('AccountId', acc.Id);
     }
 
-    Rollup.triggerRecords = records;
+    Rollup.records = records;
     Rollup.shouldRun = true;
     DMLMock mock = new DMLMock();
     Rollup.DML = mock;
@@ -382,7 +605,7 @@ private class RollupTests {
   }
 
   private static List<Rollup.FlowInput> prepareFlowTest(List<SObject> records, String rollupContext, String rollupOperation) {
-    Rollup.triggerRecords = null; // just to ensure this is coming from the correct place
+    Rollup.records = null; // just to ensure this is coming from the correct place
 
     Rollup.FlowInput flowInput = new Rollup.FlowInput();
     flowInput.recordsToRollup = records;
