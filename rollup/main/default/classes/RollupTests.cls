@@ -183,7 +183,26 @@ private class RollupTests {
 
   @isTest
   static void shouldBatchThreeOperations() {
-    //TODO: fix me
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 100, Name = 'My test name') });
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+
+    Test.startTest();
+    Rollup.batch(
+      Rollup.countDistinctFromTrigger(Opportunity.AccountId, Account.Id, Account.NumberOfEmployees, Account.SObjectType),
+      Rollup.sumFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType),
+      Rollup.concatFromTrigger(Opportunity.Name, Opportunity.AccountId, Account.Id, Account.AccountNumber, Account.SObjectType)
+    );
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated batch AFTER_INSERT');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(100, updatedAcc.AnnualRevenue, 'SUM AFTER_INSERT should count when the field is present on the calc item batched');
+    System.assertEquals(
+      1,
+      updatedAcc.NumberOfEmployees,
+      'COUNT_DISTINCT AFTER_INSERT should count regardless of not pointing to a field based on the batch operation'
+    );
+    System.assertEquals('My test name', updatedAcc.AccountNumber);
   }
 
   @isTest
@@ -438,7 +457,49 @@ private class RollupTests {
     System.assertEquals(175, updatedAcc.AnnualRevenue, 'MIN BEFORE_DELETE should take the minimum opportunity amount');
   }
 
-  // TODO: up till this point, we have been testing rollup functions using numeric types.
+  @isTest
+  static void shouldConcatOnUpdate() {
+    // AFTER_INSERT test is handled in the "shouldBatchThreeOperations" method
+    Account acc = [SELECT Id, AccountNumber FROM Account];
+    acc.AccountNumber = 'first test string';
+    update acc;
+
+    Opportunity opp = new Opportunity(AccountId = acc.Id, Name = 'second test string', Id = TestingUtils.generateId(Opportunity.SObjectType));
+    Opportunity oldOpp = opp.clone(true, true);
+    oldOpp.Name = acc.AccountNumber;
+
+    DMLMock mock = getMock(new List<Opportunity>{ opp });
+    Rollup.oldRecordsMap = new Map<Id, SObject>{ oldOpp.Id => oldOpp };
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+
+    Test.startTest();
+    Rollup.concatFromTrigger(Opportunity.Name, Opportunity.AccountId, Account.Id, Account.AccountNumber, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated CONCAT AFTER_UPDATE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(opp.Name, updatedAcc.AccountNumber, 'CONCAT AFTER_UPDATE should replace the old string value with the new');
+  }
+
+  @isTest
+  static void shouldConcatOnDelete() {
+    Account acc = [SELECT Id, AccountNumber FROM Account];
+    acc.AccountNumber = 'beginning test string something';
+    update acc;
+
+    Opportunity opp = new Opportunity(AccountId = acc.Id, Name = 'test string');
+    DMLMock mock = getMock(new List<Opportunity>{ opp });
+    Rollup.triggerContext = TriggerOperation.BEFORE_DELETE;
+
+    Test.startTest();
+    Rollup.concatFromTrigger(Opportunity.Name, Opportunity.AccountId, Account.Id, Account.AccountNumber, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated CONCAT BEFORE_DELETE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals('beginning something', updatedAcc.AccountNumber, 'CONCAT BEFORE_DELETE should replace the outgoing string value with empty string');
+  }
+
   // Now we test different field types for success: time, date, datetime, string, illegal arg
 
   /** Invocable tests */

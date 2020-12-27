@@ -70,6 +70,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     set;
   }
 
+  private static final DefaultSObjectFieldInitializer FieldInitializer = new DefaultSObjectFieldInitializer();
+
   // TODO: average functions differently because it has to consider the whole dataset
   private enum Op {
     SUM,
@@ -86,7 +88,10 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     DELETE_MAX,
     MIN,
     UPDATE_MIN,
-    DELETE_MIN
+    DELETE_MIN,
+    CONCAT,
+    UPDATE_CONCAT,
+    DELETE_CONCAT
   }
 
   private Rollup() {
@@ -216,7 +221,12 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   public Database.QueryLocator start(Database.BatchableContext context) {
-    // for batch, we know 100% for sure there's only 1 SObjectType / Set<String> in the map
+    /**
+     * for batch, we know 100% for sure there's only 1 SObjectType / Set<String> in the map.
+     * NB: we have to call "getFieldNamesForRollups" in both the "start" and "execute" methods because
+     * trying to use Database.Stateful on the top-level class ** in addition to Batchable ** results in the dreaded:
+     * "System.AsyncException: Queueable cannot be implemented with other system interfaces."
+     * */
     this.getFieldNamesForRollups();
     String query;
     Set<String> objIds = new Set<String>();
@@ -454,6 +464,35 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       countDistinctFieldOnOperationObject,
       lookupSobjectType,
       Op.COUNT_DISTINCT,
+      eval
+    );
+  }
+
+  public static Rollup concatFromTrigger(
+    SObjectField concatFieldOnCalcItem,
+    SObjectField lookupFieldOnCalcItem,
+    SObjectField lookupFieldOnOperationObject,
+    SObjectField concatFieldOnOperationObject,
+    SObjectType lookupSobjectType
+  ) {
+    return concatFromTrigger(concatFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOperationObject, concatFieldOnOperationObject, lookupSobjectType, null);
+  }
+
+  public static Rollup concatFromTrigger(
+    SObjectField concatFieldOnCalcItem,
+    SObjectField lookupFieldOnCalcItem,
+    SObjectField lookupFieldOnOperationObject,
+    SObjectField sumFieldOnOpOject,
+    SObjectType lookupSobjectType,
+    Evaluator eval
+  ) {
+    return operateFromTrigger(
+      concatFieldOnCalcItem,
+      lookupFieldOnCalcItem,
+      lookupFieldOnOperationObject,
+      sumFieldOnOpOject,
+      lookupSobjectType,
+      Op.CONCAT,
       eval
     );
   }
@@ -822,7 +861,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     // prior to returning, we need to ensure the default value for the rollup field is set
     for (SObject lookupItem : lookupItems) {
       if (lookupItem.get(rollup.opFieldOnLookupObject) == null) {
-        lookupItem.put(rollup.opFieldOnLookupObject, this.getDefaultValue(rollup.opFieldOnLookupObject));
+        lookupItem.put(rollup.opFieldOnLookupObject, FieldInitializer.getDefaultValue(rollup.opFieldOnLookupObject));
       }
     }
   }
@@ -840,8 +879,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           lookupItemKeys.remove(lookupId);
           // this way, the updated values are persisted for each field, and the default values are initialized
           SObject updatedLookupObject = updatedLookupRecords.get(lookupId);
-          if(updatedLookupObject.get(rollup.opFieldOnLookupObject) == null) {
-            updatedLookupObject.put(rollup.opFieldOnLookupObject, this.getDefaultValue(rollup.opFieldOnLookupObject));
+          if (updatedLookupObject.get(rollup.opFieldOnLookupObject) == null) {
+            updatedLookupObject.put(rollup.opFieldOnLookupObject, FieldInitializer.getDefaultValue(rollup.opFieldOnLookupObject));
           }
           lookupItems.add(updatedLookupObject);
         }
@@ -857,34 +896,6 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     DML.doUpdate(updatedLookupRecords.values());
   }
 
-  private Object getDefaultValue(SObjectField field) {
-    // not surprisingly, "getDefaultValue" on the DescribeFieldResult returns null for fields without default values
-    // this is a shame - all types *should* have default values. Instead, we have the privilege of having to initialize these ourselves
-    Schema.DisplayType fieldType = field.getDescribe().getType();
-    Object initializedDefault;
-    switch on fieldType {
-      when CURRENCY, DOUBLE, INTEGER, LONG, PERCENT {
-        initializedDefault = 0;
-      }
-      when DATETIME {
-        initializedDefault = now;
-      }
-      when DATE {
-        initializedDefault = now.dateGmt();
-      }
-      when TIME {
-        initializedDefault = now.timeGmt();
-      }
-      when STRING, PICKLIST, ID, TEXTAREA, URL, PHONE, EMAIL, MULTIPICKLIST, ENCRYPTEDSTRING {
-        initializedDefault = ''; // TODO: concat operations
-      }
-      when else {
-        throw new IllegalArgumentException('Field specified invalid for rollup operation: ' + fieldType.name());
-      }
-    }
-    return initializedDefault;
-  }
-
   private List<SObject> getUpdatedLookupItemsByRollup(Rollup rollup, Map<String, List<SObject>> calcItemsByLookupField, List<SObject> lookupItems) {
     List<SObject> recordsToUpdate = new List<SObject>();
     for (SObject lookupRecord : lookupItems) {
@@ -892,7 +903,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       if (calcItemsByLookupField.containsKey(key)) {
         List<SObject> calcItems = calcItemsByLookupField.get(key);
         Object priorVal = lookupRecord.get(rollup.opFieldOnLookupObject);
-        Object newVal = this.getRollupVal(rollup, calcItems, priorVal);
+        Object newVal = this.getRollupVal(rollup, calcItems, priorVal, rollup.opFieldOnLookupObject);
         lookupRecord.put(rollup.opFieldOnLookupObject, newVal);
         recordsToUpdate.add(lookupRecord);
       }
@@ -901,21 +912,23 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     return recordsToUpdate;
   }
 
-  private Object getRollupVal(Rollup rollup, List<SObject> calcItems, Object priorVal) {
-    RollupCalculator rollupCalc = this.getRollupType(priorVal, rollup.op);
+  private Object getRollupVal(Rollup rollup, List<SObject> calcItems, Object priorVal, SObjectField operationField) {
+    RollupCalculator rollupCalc = this.getRollupType(priorVal, rollup.op, operationField);
     for (SObject calcItem : calcItems) {
       rollupCalc.performRollup(rollup.op, priorVal, calcItem, rollup.oldCalcItems, rollup.opFieldOnCalcItem);
     }
     return rollupCalc.getReturnValue();
   }
 
-  private RollupCalculator getRollupType(Object priorVal, Op operationType) {
+  private RollupCalculator getRollupType(Object priorVal, Op operationType, SObjectField operationField) {
     if (operationType.name().contains(Rollup.Op.COUNT_DISTINCT.name())) {
-      return new CountDistinctRollupCalculator(0);
+      return new CountDistinctRollupCalculator(0, operationField);
     } else if (operationType.name().contains(Rollup.Op.COUNT.name())) {
-      return new CountRollupCalculator(priorVal);
+      return new CountRollupCalculator(priorVal, operationField);
     } else if (priorVal instanceof Decimal) {
-      return new DecimalRollupCalculator(priorVal);
+      return new DecimalRollupCalculator(priorVal, operationField);
+    } else if (priorVal instanceof String) {
+      return new StringRollupCalculator(priorVal, operationField);
     } else {
       throw new IllegalArgumentException('Calculation not defined for: ' + JSON.serialize(priorVal));
     }
@@ -928,22 +941,58 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
   }
 
+  private class DefaultSObjectFieldInitializer {
+    private Object getDefaultValue(SObjectField field) {
+      // not surprisingly, "getDefaultValue" on the DescribeFieldResult returns null for fields without default values
+      // this is a shame - all types *should* have default values. Instead, we have the privilege of having to initialize these ourselves
+      Schema.DisplayType fieldType = field.getDescribe().getType();
+      Object initializedDefault;
+      switch on fieldType {
+        when CURRENCY, DOUBLE, INTEGER, LONG, PERCENT {
+          initializedDefault = 0;
+        }
+        when DATETIME {
+          initializedDefault = now;
+        }
+        when DATE {
+          initializedDefault = now.dateGmt();
+        }
+        when TIME {
+          initializedDefault = now.timeGmt();
+        }
+        when STRING, PICKLIST, ID, TEXTAREA, URL, PHONE, EMAIL, MULTIPICKLIST, ENCRYPTEDSTRING {
+          initializedDefault = '';
+        }
+        when else {
+          throw new IllegalArgumentException('Field specified invalid for rollup operation: ' + fieldType.name());
+        }
+      }
+      return initializedDefault;
+    }
+  }
+
   private abstract class RollupCalculator {
     protected Object returnVal;
-    public RollupCalculator(Object returnVal) {
-      this.returnVal = returnVal;
+    public RollupCalculator(Object returnVal, SObjectField operationField) {
+      this.returnVal = returnVal == null ? FieldInitializer.getDefaultValue(operationField) : returnVal;
     }
     public virtual Object getReturnValue() {
       return returnVal;
     }
     public abstract void performRollup(Op op, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField);
+
+    protected Object calculateNewAggregateValue(List<String> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
+      String operationName = operation.name().substringAfter('_');
+      String alias = operationName.toLowerCase() + 'field';
+      String query = 'SELECT ' + operationName + '(' + operationField + ')' + alias + ' FROM ' + sObjectType + ' WHERE Id != :excludedItems';
+      return Database.query(query)[0].get(alias);
+    }
   }
 
   private virtual class DecimalRollupCalculator extends RollupCalculator {
     private Boolean shouldShortCircuit = false;
-    public DecimalRollupCalculator(Object priorVal) {
-      // much as it pains me to duplicate the null check, it must be done; we can't reference instance methods till after the super() call
-      super(priorVal == null ? 0 : priorVal);
+    public DecimalRollupCalculator(Object priorVal, SObjectField operationField) {
+      super(priorVal, operationField);
     }
 
     protected Decimal getDecimalOrDefault(Object potentiallyUnitializedDecimal) {
@@ -1006,7 +1055,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           Decimal newVal = this.getNumericValue(calcItem, operationField);
           if (thisPriorVal != 0 && thisPriorVal == returnVal && newVal < thisPriorVal) {
             this.shouldShortCircuit = true;
-            Decimal maxValue = this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
+            Decimal maxValue = (Decimal) this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
             this.returnVal = this.getDecimalOrDefault(maxValue);
             return;
           } else if (newVal > returnVal) {
@@ -1018,7 +1067,12 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           Decimal numericValue = this.getNumericValue(calcItem, operationField);
           if (numericValue == returnVal && returnVal != 0) {
             this.shouldShortCircuit = true;
-            Decimal maxValue = this.calculateNewAggregateValue(new List<Id>(oldCalcItems.keySet()), operation, operationField, calcItem.getSObjectType());
+            Decimal maxValue = (Decimal) this.calculateNewAggregateValue(
+              new List<Id>(oldCalcItems.keySet()),
+              operation,
+              operationField,
+              calcItem.getSObjectType()
+            );
             this.returnVal = this.getDecimalOrDefault(maxValue);
             return;
           }
@@ -1034,7 +1088,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           Decimal newVal = this.getNumericValue(calcItem, operationField);
           if (thisPriorVal != 0 && thisPriorVal == returnVal && newVal > thisPriorVal) {
             this.shouldShortCircuit = true;
-            Decimal minValue = this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
+            Decimal minValue = (Decimal) this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
             this.returnVal = this.getDecimalOrDefault(minValue);
             return;
           } else if (newVal < returnVal || returnVal == 0) {
@@ -1044,18 +1098,11 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       }
       this.returnVal = returnVal;
     }
-
-    private Decimal calculateNewAggregateValue(List<String> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
-      String operationName = operation.name().substringAfter('_');
-      String alias = operationName.toLowerCase() + 'field';
-      String query = 'SELECT ' + operationName + '(' + operationField + ')' + alias + ' FROM ' + sObjectType + ' WHERE Id != :excludedItems';
-      return (Decimal) Database.query(query)[0].get(alias);
-    }
   }
 
   private class CountDistinctRollupCalculator extends RollupCalculator {
-    public CountDistinctRollupCalculator(Object returnValue) {
-      super(returnValue);
+    public CountDistinctRollupCalculator(Object returnValue, SObjectField operationField) {
+      super(returnValue, operationField);
     }
 
     public override void performRollup(Op operation, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
@@ -1073,8 +1120,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private class CountRollupCalculator extends DecimalRollupCalculator {
-    public CountRollupCalculator(Object priorVal) {
-      super(priorVal);
+    public CountRollupCalculator(Object priorVal, SObjectField operationField) {
+      super(priorVal, operationField);
     }
 
     public override Object getReturnValue() {
@@ -1093,6 +1140,32 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
 
     private Decimal getCountValue(Decimal potentialReturnValue) {
       return potentialReturnValue > 0 ? 1 : potentialReturnValue;
+    }
+  }
+
+  private class StringRollupCalculator extends RollupCalculator {
+    public StringRollupCalculator(Object priorVal, SObjectField operationField) {
+      super(priorVal, operationField);
+    }
+
+    public override void performRollup(Op op, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
+      String stringVal = (String) this.returnVal;
+      switch on op {
+        when CONCAT {
+          stringVal += (String) calcItem.get(operationField);
+        }
+        when UPDATE_CONCAT {
+          String priorString = (String) oldCalcItems.get(calcItem.Id).get(operationField);
+          String newVal = (String) calcItem.get(operationField);
+          stringVal = stringVal.replace(priorString, newVal);
+        }
+        when DELETE_CONCAT {
+          String existingVal = (String) calcItem.get(operationField);
+          Integer index = stringVal.indexOf(existingVal);
+          stringVal = stringVal.replace(existingVal, '');
+        }
+      }
+      this.returnVal = stringVal.normalizeSpace();
     }
   }
 }
