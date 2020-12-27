@@ -190,7 +190,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         uniqueLookupFields.add((String) calcItem.get(rollup.lookupFieldOnCalcItem));
       }
 
-      String countQuery = 'SELECT Count() FROM ' + String.valueOf(rollup.lookupObj) + ' WHERE Id = :objIds';
+      String countQuery = getCountQueryString(rollup.lookupObj, '=');
       if (queryCountsToLookupIds.containsKey(countQuery)) {
         queryCountsToLookupIds.get(countQuery).addAll(uniqueLookupFields);
       } else {
@@ -217,6 +217,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   protected virtual List<SObject> getExistingLookupItems(Set<String> objIds, Rollup rollup, Set<String> uniqueQueryFieldNames) {
+    // for Rollups that are Batchable, the lookup items are retrieved en masse in the "start" method and cached in the "execute method"
     return this.lookupItems;
   }
 
@@ -248,6 +249,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   public void finish(Database.BatchableContext context) {
+    // simply to conform to the demands of the interface; we don't really have any further book-keeping to do once rolling up has concluded
   }
 
   private class RollupAsyncProcessor extends Rollup implements System.Queueable {
@@ -273,7 +275,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       if (objIds.isEmpty()) {
         return new List<SObject>();
       }
-      // non-obvious coupling between "objIds" and the computed query string, which uses dynamic variable binding
+      // non-obvious coupling between "objIds" and the computed "queryString", which uses dynamic variable binding
       String queryString = this.getQueryString(rollup.lookupObj, uniqueQueryFieldNames, rollup.lookupFieldOnLookupObject);
       List<SObject> lookupItems = Database.query(queryString);
       this.initializeRollupFieldDefaults(lookupItems, rollup);
@@ -680,6 +682,10 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     return getCalculator(rollupMetadata, sObjectType, rollupContext, calcItems, oldCalcItems, eval);
   }
   // end public-facing section
+
+  private static String getCountQueryString(SObjectType sObjectType, String equalityOperatorForIds) {
+    return 'SELECT Count() FROM ' + sObjectType + ' WHERE Id ' + equalityOperatorForIds + ' :objIds';
+  }
 
   private static String getFlowRollupContext(FlowInput firstInput) {
     String flowContext = String.isBlank(firstInput.rollupContext) ? 'INSERT' : firstInput.rollupContext;
@@ -1219,9 +1225,9 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       }
 
       SObjectType sObjectType = calcItems[0].getSobjectType();
-      Set<String> recordIds = new Map<String, SObject>(calcItems).keySet();
-      Integer countOfPreExistingItems = Database.countQuery('SELECT COUNT() FROM ' + sObjectType + ' WHERE Id != :recordIds');
-      Decimal oldSum = (Decimal) Database.query('SELECT SUM(' + operationField + ') sum1 FROM ' + sObjectType + ' WHERE Id != :recordIds')[0].get('sum1');
+      Set<String> objIds = new Map<String, SObject>(calcItems).keySet();
+      Integer countOfPreExistingItems = Database.countQuery(getCountQueryString(sObjectType, '!='));
+      Decimal oldSum = (Decimal) Database.query('SELECT SUM(' + operationField + ') sum1 FROM ' + sObjectType + ' WHERE Id != :objIds')[0].get('sum1');
 
       List<SObject> applicableCalcItems = operationType == Op.DELETE_AVERAGE ? new List<SObject>() : calcItems;
       Decimal newSum = this.getSumFromCalcItems(applicableCalcItems, operationField);
