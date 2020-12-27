@@ -23,7 +23,7 @@ private class RollupTests {
     Rollup.sumFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
     Test.stopTest();
 
-    System.assertEquals(null, mock.Records, 'Records should not have been set or updated, this is a no-op');
+    System.assertEquals(true, mock.Records.isEmpty(), 'Records should not have been set or updated, this is a no-op');
   }
 
   @isTest
@@ -33,7 +33,7 @@ private class RollupTests {
 
     Rollup rollup = Rollup.sumFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType);
 
-    System.assertEquals(null, mock.Records);
+    System.assertEquals(true, mock.Records.isEmpty());
 
     Test.startTest();
     rollup.runCalc();
@@ -76,7 +76,7 @@ private class RollupTests {
   }
 
   @isTest
-  static void shouldCountDistinctFromTrigger() {
+  static void shouldCountDistinctFromTriggerOnInsert() {
     DMLMock mock = getMock(new List<Opportunity>{ new Opportunity() });
     Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
 
@@ -90,7 +90,21 @@ private class RollupTests {
   }
 
   @isTest
-  static void shouldCountFromTrigger() {
+  static void shouldCountDistinctFromTriggerOnDelete() {
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity() });
+    Rollup.triggerContext = TriggerOperation.BEFORE_DELETE;
+
+    Test.startTest();
+    Rollup.countDistinctFromTrigger(Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated COUNT_DISTINCT BEFORE_DELETE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(-1, updatedAcc.AnnualRevenue, 'COUNT_DISTINCT BEFORE_DELETE should simply decrement');
+  }
+
+  @isTest
+  static void shouldCountFromTriggerAfterInsert() {
     DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 1) });
     Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
 
@@ -102,6 +116,28 @@ private class RollupTests {
     Account updatedAcc = (Account) mock.Records[0];
     System.assertEquals(1, updatedAcc.AnnualRevenue, 'COUNT AFTER_INSERT should add when field is populated');
   }
+
+  @isTest
+  static void shouldDecrementCountFromTriggerAfterUpdateIfValueIsRemove() {
+    Account acc = [SELECT Id, AnnualRevenue FROM Account];
+    acc.AnnualRevenue = 1;
+    update acc;
+
+    Opportunity opp = new Opportunity(Id = TestingUtils.generateId(Opportunity.SObjectType));
+    DMLMock mock = getMock(new List<Opportunity>{ opp });
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>{ opp.Id => new Opportunity(Id = opp.Id, Amount = 1) };
+
+    Test.startTest();
+    Rollup.countFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated COUNT AFTER_UPDATE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(0, updatedAcc.AnnualRevenue, 'COUNT AFTER_UPDATE should decrement when field is removed');
+  }
+
+  // TODO: also need a test showing that count is not incremented when amount changes
 
   @isTest
   static void shouldRunSumFromTriggerBasedOnMetadata() {
@@ -203,6 +239,25 @@ private class RollupTests {
       'COUNT_DISTINCT AFTER_INSERT should count regardless of not pointing to a field based on the batch operation'
     );
     System.assertEquals('My test name', updatedAcc.AccountNumber);
+  }
+
+  @isTest
+  static void shouldThrowExceptionWhenBatchedOperationWithMultipleSObjectTypes() {
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 50, Name = 'Test') });
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+    Rollup.shouldRunAsBatch = true;
+
+    Exception ex;
+    try {
+      Rollup.batch(
+        Rollup.sumFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType),
+        Rollup.concatFromTrigger(Opportunity.Name, Opportunity.CreatedById, User.Id, User.Username, User.SObjectType)
+      );
+    } catch (Exception e) {
+      ex = e;
+    }
+
+    System.assertNotEquals(null, ex);
   }
 
   @isTest
@@ -410,7 +465,7 @@ private class RollupTests {
     insert originalOpps;
 
     Opportunity updatedOpp = opp.clone(true, true);
-    updatedOpp.Amount = 150;
+    updatedOpp.Amount = secondOpp.Amount + 50; // the amount isn't important - that it's now more than the second Opp amount is
     Opportunity updatedSecondOpp = secondOpp.clone(true, true);
     updatedSecondOpp.Amount = secondOpp.Amount - 30; // the amount is really unimportant; that it doesn't match what's in the database is
     List<Opportunity> opps = new List<Opportunity>{ updatedOpp, updatedSecondOpp };

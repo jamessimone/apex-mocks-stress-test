@@ -75,7 +75,6 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     UPDATE_SUM,
     DELETE_SUM,
     COUNT_DISTINCT,
-    UPDATE_COUNT_DISTINCT,
     DELETE_COUNT_DISTINCT,
     COUNT,
     UPDATE_COUNT,
@@ -205,14 +204,20 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
 
     // TODO: implement RollupLimit__mdt to force batch/queueable and/or tweak the limits here
-    Boolean shouldRunAsBatch = shouldRunAsBatch || (totalCountOfRecords >= (Limits.getLimitDmlRows() / 3) && hasMoreThanOneTarget == false);
-    if (shouldRunAsBatch) {
+    Boolean shouldRunAsBatch = shouldRunAsBatch || (totalCountOfRecords >= (Limits.getLimitDmlRows() / 3));
+    if (shouldRunAsBatch && hasMoreThanOneTarget == false) {
       // safe to batch because the QueryLocator will only return one type of SObject
       Database.executeBatch(new Rollup(this));
-    } else if (totalCountOfRecords <= (Limits.getLimitDmlRows() / 2)) {
+    } else if (shouldRunAsBatch == false && totalCountOfRecords <= (Limits.getLimitDmlRows() / 2)) {
       System.enqueueJob(this);
     } else {
-      throw new AsyncException('Number of records that would be rolled up : ' + totalCountOfRecords + ' exceeds safety threshold');
+      throw new AsyncException(
+        'Number of records that would be rolled up : ' +
+        totalCountOfRecords +
+        ' exceeds safety threshold, or you tried to run this in Batch mode with more than one target type. (' +
+        hasMoreThanOneTarget +
+        ')'
+      );
     }
   }
 
@@ -434,13 +439,9 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   public static void batch(List<Rollup> rollups) {
-    Rollup batchCalculator = new RollupAsyncProcessor();
-    for (Rollup rollup : rollups) {
-      for (Rollup innerRollup : rollup.rollups) {
-        loadCalculators(innerRollup, batchCalculator);
-      }
-    }
-    batchCalculator.runCalc();
+    Rollup batchRollup = new RollupAsyncProcessor();
+    flattenBatches(batchRollup, rollups);
+    batchRollup.runCalc();
   }
 
   public static Rollup averageFromTrigger(
@@ -675,16 +676,24 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         shouldReturn = true;
       }
     }
-    if (shouldReturn) {
-      return new RollupAsyncProcessor();
-    }
-
-    return getCalculator(rollupMetadata, sObjectType, rollupContext, calcItems, oldCalcItems, eval);
+    return shouldReturn ? new RollupAsyncProcessor() : getCalculator(rollupMetadata, sObjectType, rollupContext, calcItems, oldCalcItems, eval);
   }
-  // end public-facing section
+
+  // end public-facing section, begin private static helpers
 
   private static String getCountQueryString(SObjectType sObjectType, String equalityOperatorForIds) {
     return 'SELECT Count() FROM ' + sObjectType + ' WHERE Id ' + equalityOperatorForIds + ' :objIds';
+  }
+
+  private static void flattenBatches(Rollup outerRollup, List<Rollup> rollups) {
+    for (Rollup rollup : rollups) {
+      if (rollup.isBatched || rollup.rollups.isEmpty() == false) {
+        // recurse through lists until there aren't any more nested batch types
+        flattenBatches(outerRollup, rollup.rollups);
+      } else {
+        loadCalculators(rollup, outerRollup);
+      }
+    }
   }
 
   private static String getFlowRollupContext(FlowInput firstInput) {
@@ -1182,12 +1191,13 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
 
     protected override Decimal getNumericChangedValue(SObject calcItem, SObjectField operationField, Map<Id, SObject> oldCalcItems) {
-      Decimal potentialReturnValue = super.getNumericChangedValue(calcItem, operationField, oldCalcItems);
-      return this.getCountValue(potentialReturnValue);
+      Decimal potentialReturnValue = this.getNumericValue(calcItem, operationField);
+      // for updates, we have to decrement the count if the value has been cleared out
+      return this.getCountValue(potentialReturnValue) == 0 ? -1 : 0;
     }
 
     private Decimal getCountValue(Decimal potentialReturnValue) {
-      return potentialReturnValue > 0 ? 1 : potentialReturnValue;
+      return Math.abs(potentialReturnValue) > 0 ? 1 : potentialReturnValue;
     }
   }
 
