@@ -1010,6 +1010,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
 
   private class DefaultSObjectFieldInitializer {
     public final Datetime defaultDateTime = Datetime.newInstanceGmt(1970, 1, 1);
+    public final Long maximumLongValue = (Math.pow(2, 63) - 1).longValue();
+    public final Long minimumLongValue = this.maximumLongValue * -1;
     private Object getDefaultValue(SObjectField field) {
       // not surprisingly, "getDefaultValue" on the DescribeFieldResult returns null for fields without default values
       // this is a shame - all types *should* have default values. Instead, we have the privilege of getting to initialize these ourselves
@@ -1028,7 +1030,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         when TIME {
           initializedDefault = this.defaultDateTime.timeGmt();
         }
-        when STRING, PICKLIST, ID, TEXTAREA, URL, PHONE, EMAIL, MULTIPICKLIST, ENCRYPTEDSTRING {
+        when STRING, PICKLIST, ID, TEXTAREA, URL, PHONE, EMAIL, MULTIPICKLIST {
           initializedDefault = '';
         }
         when else {
@@ -1097,6 +1099,14 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       return newVal - oldVal;
     }
 
+    public virtual override Object getReturnValue() {
+      Decimal potentialReturnValue = (Decimal) this.returnVal;
+      if (potentialReturnValue == FieldInitializer.maximumLongValue || potentialReturnValue == FieldInitializer.minimumLongValue) {
+        this.returnVal = 0;
+      }
+      return this.returnVal;
+    }
+
     public override void performRollup(Op operation, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
       Decimal returnVal = (Decimal) this.returnVal;
       if (this.shouldShortCircuit) {
@@ -1143,8 +1153,10 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           if (thisPriorVal != 0 && thisPriorVal == returnVal && newVal < thisPriorVal) {
             this.shouldShortCircuit = true;
             Decimal maxValue = (Decimal) this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
-            this.returnVal = this.getDecimalOrDefault(maxValue);
-            return;
+            returnVal = this.getDecimalOrDefault(maxValue);
+            if (returnVal == 0) {
+              returnVal = FieldInitializer.minimumLongValue;
+            }
           } else if (newVal > returnVal) {
             returnVal = newVal;
           }
@@ -1154,14 +1166,18 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           Decimal numericValue = this.getNumericValue(calcItem, operationField);
           if (numericValue == returnVal && returnVal != 0) {
             this.shouldShortCircuit = true;
-            Decimal maxValue = (Decimal) this.calculateNewAggregateValue(
+            Decimal potentialReturnValue = (Decimal) this.calculateNewAggregateValue(
               new List<Id>(oldCalcItems.keySet()),
               operation,
               operationField,
               calcItem.getSObjectType()
             );
-            this.returnVal = this.getDecimalOrDefault(maxValue);
-            return;
+            returnVal = this.getDecimalOrDefault(potentialReturnValue);
+            if (operation == Op.DELETE_MIN && returnVal == 0) {
+              returnVal = FieldInitializer.maximumLongValue;
+            } else if (operation == Op.DELETE_MAX && returnVal == 0) {
+              returnVal = FieldInitializer.minimumLongValue;
+            }
           }
         }
         when MIN {
@@ -1176,8 +1192,10 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           if (thisPriorVal != 0 && thisPriorVal == returnVal && newVal > thisPriorVal) {
             this.shouldShortCircuit = true;
             Decimal minValue = (Decimal) this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
-            this.returnVal = this.getDecimalOrDefault(minValue);
-            return;
+            returnVal = this.getDecimalOrDefault(minValue);
+            if (returnVal == 0) {
+              returnVal = FieldInitializer.maximumLongValue;
+            }
           } else if (newVal < returnVal || returnVal == 0) {
             returnVal = newVal;
           }
@@ -1193,6 +1211,9 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
 
     public virtual override Object getReturnValue() {
+      if (((Decimal) this.returnVal).longValue() == FieldInitializer.maximumLongValue) {
+        this.returnVal = 0;
+      }
       return Datetime.newInstance(((Decimal) this.returnVal).longValue());
     }
 
@@ -1202,7 +1223,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       }
       // one of the worst things about SOQL is that values retrieved have the millisecond values truncated
       Datetime datetimeWithMs = potentiallyUnitializedDecimal instanceof Decimal
-        ? Datetime.newInstance(((Decimal)potentiallyUnitializedDecimal).longValue())
+        ? Datetime.newInstance(((Decimal) potentiallyUnitializedDecimal).longValue())
         : ((Datetime) potentiallyUnitializedDecimal);
       return Datetime.newInstanceGmt(
           datetimeWithMs.yearGmt(),
@@ -1215,8 +1236,16 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         .getTime();
     }
 
-    protected override Object calculateNewAggregateValue(List<String> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
-      return ((Datetime)super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType)).getTime();
+    protected virtual override Object calculateNewAggregateValue(
+      List<String> excludedItems,
+      Op operation,
+      SObjectField operationField,
+      SObjectType sObjectType
+    ) {
+      Object aggregate = super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType);
+      // for min, the default is the maximum possible Long value so that any in-memory calcItem has the chance to override
+      Object defaultVal = operation.name().contains(Op.MIN.name()) ? FieldInitializer.maximumLongValue : 0;
+      return aggregate == null ? defaultVal : ((Datetime) super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType)).getTime();
     }
   }
 
@@ -1228,6 +1257,30 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
 
     public override Object getReturnValue() {
       return ((Datetime) super.getReturnValue()).dateGmt();
+    }
+
+    // min/max is allowed for Datetimes but not all Date fields. Go figure!
+    protected virtual override Object calculateNewAggregateValue(
+      List<String> excludedItems,
+      Op operation,
+      SObjectField operationField,
+      SObjectType sObjectType
+    ) {
+      try {
+        return super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType);
+      } catch (Exception ex) {
+        Date minOrMaxDate;
+        List<SObject> allOtherItems = Database.query('SELECT ' + operationField + ' FROM ' + sObjectType + ' WHERE Id != :excludedItems');
+        for (SObject otherItem : allOtherItems) {
+          Date otherItemDate = (Date) otherItem.get(operationField);
+          if (otherItemDate != null && operation.name().contains(Op.MAX.name()) && (minOrMaxDate == null || otherItemDate > minOrMaxDate)) {
+            minOrMaxDate = otherItemDate;
+          } else if (otherItemDate != null && operation.name().contains(Op.MIN.name()) && (minOrMaxDate == null || otherItemDate < minOrMaxDate)) {
+            minOrMaxDate = otherItemDate;
+          }
+        }
+        return minOrMaxDate == null ? 0 : Datetime.newInstanceGmt(minOrMaxDate, Time.newInstance(0, 0, 0, 0)).getTime();
+      }
     }
   }
 
@@ -1274,6 +1327,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private class StringRollupCalculator extends RollupCalculator {
+    // TODO: min/max for string fields
     public StringRollupCalculator(Object priorVal, SObjectField operationField) {
       super(priorVal, operationField);
     }
@@ -1313,7 +1367,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
 
       List<SObject> applicableCalcItems = operationType == Op.DELETE_AVERAGE ? new List<SObject>() : calcItems;
       Decimal newSum = 0;
-      for (SObject calcItem : calcItems) {
+      for (SObject calcItem : applicableCalcItems) {
         newSum += (Decimal) calcItem.get(operationField);
       }
 

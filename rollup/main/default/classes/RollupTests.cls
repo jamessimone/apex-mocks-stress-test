@@ -381,6 +381,51 @@ private class RollupTests {
   }
 
   @isTest
+  static void shouldTakeIntoAccountInMemorySObjectsWhenUpdatedItemIsNoLongerMaxAndNoOtherSObjectsExist() {
+    Account acc = [SELECT Id FROM Account];
+    acc.AnnualRevenue = 250;
+    update acc;
+
+    Opportunity opp = new Opportunity(
+      Amount = acc.AnnualRevenue,
+      AccountId = acc.Id,
+      Name = 'testOpp',
+      StageName = 'something',
+      CloseDate = System.today(),
+      Id = TestingUtils.generateId(Opportunity.SObjectType)
+    );
+    Opportunity secondOpp = new Opportunity(
+      Amount = 175,
+      AccountId = acc.Id,
+      Name = 'testOppTwo',
+      StageName = 'something',
+      CloseDate = System.today(),
+      Id = TestingUtils.generateId(Opportunity.SObjectType)
+    );
+    List<Opportunity> originalOpps = new List<Opportunity>{ opp, secondOpp };
+
+    Opportunity updatedOpp = opp.clone(true, true);
+    updatedOpp.Amount = 150;
+    Opportunity updatedSecondOpp = secondOpp.clone(true, true);
+    updatedSecondOpp.Amount = secondOpp.Amount + 30; // the amount is really unimportant; that it doesn't match what's in memory is
+    List<Opportunity> opps = new List<Opportunity>{ updatedOpp, updatedSecondOpp };
+    Rollup.records = opps;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>(originalOpps);
+    Rollup.shouldRun = true;
+    DMLMock mock = new DMLMock();
+    Rollup.DML = mock;
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+
+    Test.startTest();
+    Rollup.maxFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX AFTER_UPDATE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(updatedSecondOpp.Amount, updatedAcc.AnnualRevenue, 'MAX AFTER_UPDATE should take the maximum opportunity amount');
+  }
+
+  @isTest
   static void shouldMaxNumbersSuccessfullyOnDeleteWhenDeletedItemIsNoLongerMax() {
     Account acc = [SELECT Id FROM Account];
     acc.AnnualRevenue = 250;
@@ -484,6 +529,51 @@ private class RollupTests {
     Opportunity secondOpp = new Opportunity(Amount = 175, AccountId = acc.Id, Name = 'testOppTwo', StageName = 'something', CloseDate = System.today());
     List<Opportunity> originalOpps = new List<Opportunity>{ opp, secondOpp };
     insert originalOpps;
+
+    Opportunity updatedOpp = opp.clone(true, true);
+    updatedOpp.Amount = secondOpp.Amount + 50; // the amount isn't important - that it's now more than the second Opp amount is
+    Opportunity updatedSecondOpp = secondOpp.clone(true, true);
+    updatedSecondOpp.Amount = secondOpp.Amount - 30; // the amount is really unimportant; that it doesn't match what's in the database is
+    List<Opportunity> opps = new List<Opportunity>{ updatedOpp, updatedSecondOpp };
+    Rollup.records = opps;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>(originalOpps);
+    Rollup.shouldRun = true;
+    DMLMock mock = new DMLMock();
+    Rollup.DML = mock;
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+
+    Test.startTest();
+    Rollup.minFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN AFTER_UPDATE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(updatedSecondOpp.Amount, updatedAcc.AnnualRevenue, 'MIN AFTER_UPDATE should take the min opportunity amount');
+  }
+
+  @isTest
+  static void shouldTakeIntoAccountInMemorySObjectsWhenUpdatedItemIsNoLongerMinAndNoOtherSObjectsExist() {
+    Account acc = [SELECT Id FROM Account];
+    acc.AnnualRevenue = 150;
+    update acc;
+
+    Opportunity opp = new Opportunity(
+      Amount = acc.AnnualRevenue,
+      AccountId = acc.Id,
+      Name = 'testOpp',
+      StageName = 'something',
+      CloseDate = System.today(),
+      Id = TestingUtils.generateId(Opportunity.SObjectType)
+    );
+    Opportunity secondOpp = new Opportunity(
+      Amount = 175,
+      AccountId = acc.Id,
+      Name = 'testOppTwo',
+      StageName = 'something',
+      CloseDate = System.today(),
+      Id = TestingUtils.generateId(Opportunity.SObjectType)
+    );
+    List<Opportunity> originalOpps = new List<Opportunity>{ opp, secondOpp };
 
     Opportunity updatedOpp = opp.clone(true, true);
     updatedOpp.Amount = secondOpp.Amount + 50; // the amount isn't important - that it's now more than the second Opp amount is
@@ -664,7 +754,7 @@ private class RollupTests {
     System.assertEquals(testOpp.Amount, updatedAcc.AnnualRevenue, 'AVERAGE BEFORE_DELETE should take into account only non-deleted values');
   }
 
-  // Now we test different field types for success: time, datetime, date
+  // Now we test different field types for success: time, datetime, date. Here be dragons.
   @isTest
   static void shouldMaxDateOnInsert() {
     Opportunity opp = new Opportunity(StageName = 'something', CloseDate = System.today(), Name = 'Max date on insert test');
@@ -707,6 +797,7 @@ private class RollupTests {
 
   @isTest
   static void shouldMinDateOnInsertWhereParentDateIsNull() {
+    //using campaign for this test because EndDate is not required when inserting a Campaign
     Campaign camp = new Campaign(Name = 'Test Date with no initialized value');
     insert camp;
 
@@ -723,6 +814,29 @@ private class RollupTests {
     System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN DATE AFTER_INSERT');
     Campaign updatedCamp = (Campaign) mock.Records[0];
     System.assertEquals(taskOne.ActivityDate, updatedCamp.EndDate);
+  }
+
+  @isTest
+  static void shouldMinDateOnUpdate() {
+    Opportunity opp = new Opportunity(StageName = 'something', CloseDate = System.today(), Name = 'Min date on insert test');
+    insert opp;
+
+    Task taskOne = new Task(Subject = 'Test One', ActivityDate = System.today().addDays(-50));
+    insert taskOne;
+
+    Task taskTwo = new Task(Subject = 'Test Two', ActivityDate = opp.CloseDate.addDays(5), Id = TestingUtils.generateId(Task.SObjectType));
+
+    DMLMock mock = getTaskMock(new List<Task>{ taskTwo });
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+    Rollup.oldRecordsMap = new Map<Id, Task>(new List<Task>{ new Task(Id = taskTwo.Id, ActivityDate = opp.CloseDate) });
+
+    Test.startTest();
+    Rollup.minFromTrigger(Task.ActivityDate, Task.WhatId, Opportunity.Id, Opportunity.CloseDate, Opportunity.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN DATE AFTER_INSERT');
+    Opportunity updatedOpp = (Opportunity) mock.Records[0];
+    System.assertEquals(taskOne.ActivityDate, updatedOpp.CloseDate);
   }
 
   @isTest
