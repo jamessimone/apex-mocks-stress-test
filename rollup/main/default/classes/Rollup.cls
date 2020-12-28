@@ -12,6 +12,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   private static Map<Id, SObject> oldRecordsMap;
   @testVisible
   private static List<Rollup__mdt> rollupMetadata;
+  @testVisible
+  private static List<SObject> queryRecords;
 
   private final List<SObject> calcItems;
   private final Map<Id, SObject> oldCalcItems;
@@ -282,7 +284,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       }
       // non-obvious coupling between "objIds" and the computed "queryString", which uses dynamic variable binding
       String queryString = this.getQueryString(rollup.lookupObj, uniqueQueryFieldNames, rollup.lookupFieldOnLookupObject);
-      List<SObject> lookupItems = Database.query(queryString);
+      List<SObject> lookupItems = queryRecords != null ? queryRecords : Database.query(queryString);
       this.initializeRollupFieldDefaults(lookupItems, rollup);
       return lookupItems;
     }
@@ -985,6 +987,15 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       return new DecimalRollupCalculator(priorVal, operationField);
     } else if (priorVal instanceof String) {
       return new StringRollupCalculator(priorVal, operationField);
+    } else if (priorVal instanceof Date) {
+      // not obvious: the order of these else if's is of supreme importance
+      // Date has to go before Datetime; in the same way that all numbers test true as an instanceof Decimal
+      // all Dates test true as Datetimes ...
+      return new DateRollupCalculator(priorVal, operationField);
+    } else if (priorVal instanceof Time) {
+      return new TimeRollupCalculator(priorVal, operationField);
+    } else if (priorval instanceof Datetime) {
+      return new DatetimeRollupCalculator(priorVal, operationField);
     } else {
       throw new IllegalArgumentException('Calculation not defined for: ' + JSON.serialize(priorVal));
     }
@@ -998,7 +1009,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private class DefaultSObjectFieldInitializer {
-    private final Datetime defaultDateTime = Datetime.newInstance(1970, 1, 1);
+    public final Datetime defaultDateTime = Datetime.newInstanceGmt(1970, 1, 1);
     private Object getDefaultValue(SObjectField field) {
       // not surprisingly, "getDefaultValue" on the DescribeFieldResult returns null for fields without default values
       // this is a shame - all types *should* have default values. Instead, we have the privilege of getting to initialize these ourselves
@@ -1034,7 +1045,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       this.returnVal = returnVal == null ? FieldInitializer.getDefaultValue(operationField) : returnVal;
     }
     public virtual Object getReturnValue() {
-      return returnVal;
+      return this.returnVal;
     }
     public abstract void performRollup(Op op, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField);
 
@@ -1046,13 +1057,32 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
   }
 
+  private class CountDistinctRollupCalculator extends RollupCalculator {
+    public CountDistinctRollupCalculator(Object returnValue, SObjectField operationField) {
+      super(returnValue, operationField);
+    }
+
+    public override void performRollup(Op operation, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
+      Integer returnInt = (Integer) this.returnVal;
+      switch on operation {
+        when COUNT_DISTINCT {
+          returnInt++;
+        }
+        when DELETE_COUNT_DISTINCT {
+          returnInt--;
+        }
+      }
+      this.returnVal = returnInt;
+    }
+  }
+
   private virtual class DecimalRollupCalculator extends RollupCalculator {
     private Boolean shouldShortCircuit = false;
     public DecimalRollupCalculator(Object priorVal, SObjectField operationField) {
       super(priorVal, operationField);
     }
 
-    protected Decimal getDecimalOrDefault(Object potentiallyUnitializedDecimal) {
+    protected virtual Decimal getDecimalOrDefault(Object potentiallyUnitializedDecimal) {
       return (Decimal) (potentiallyUnitializedDecimal == null ? 0 : potentiallyUnitializedDecimal);
     }
 
@@ -1157,22 +1187,45 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
   }
 
-  private class CountDistinctRollupCalculator extends RollupCalculator {
-    public CountDistinctRollupCalculator(Object returnValue, SObjectField operationField) {
-      super(returnValue, operationField);
+  private virtual class DatetimeRollupCalculator extends DecimalRollupCalculator {
+    public DatetimeRollupCalculator(Object priorVal, SObjectField operationField) {
+      super(((Datetime) priorVal).getTime(), operationField);
     }
 
-    public override void performRollup(Op operation, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
-      Integer returnInt = (Integer) this.returnVal;
-      switch on operation {
-        when COUNT_DISTINCT {
-          returnInt++;
-        }
-        when DELETE_COUNT_DISTINCT {
-          returnInt--;
-        }
-      }
-      this.returnVal = returnInt;
+    public virtual override Object getReturnValue() {
+      // one of the highlights of working on this - the moment I went to implement Datetimes and realized DecimalRollupCalculator had everything I needed
+      return Datetime.newInstance(((Decimal) this.returnVal).longValue());
+    }
+
+    protected virtual override Decimal getDecimalOrDefault(Object potentiallyUnitializedDecimal) {
+      return potentiallyUnitializedDecimal == null ? FieldInitializer.defaultDateTime.getTime() : ((Datetime) potentiallyUnitializedDecimal).getTime();
+    }
+  }
+
+  private class DateRollupCalculator extends DatetimeRollupCalculator {
+    public DateRollupCalculator(Object priorVal, SObjectField operationField) {
+      super(Datetime.newInstanceGmt((Date) priorVal, Time.newInstance(0, 0, 0, 0)), operationField);
+    }
+
+    public override Object getReturnValue() {
+      return ((Datetime) super.getReturnValue()).dateGmt();
+    }
+  }
+
+  private class TimeRollupCalculator extends DatetimeRollupCalculator {
+    public TimeRollupCalculator(Object priorVal, SObjectField operationField) {
+      super(Datetime.newInstanceGmt(FieldInitializer.defaultDateTime.dateGmt(), (Time) priorVal), operationField);
+    }
+
+    public override Object getReturnValue() {
+      return ((Datetime) super.getReturnValue()).timeGmt();
+    }
+
+    protected override Decimal getDecimalOrDefault(Object potentiallyUnitializedDecimal) {
+      return ((Datetime) (potentiallyUnitializedDecimal == null
+          ? FieldInitializer.defaultDateTime
+          : Datetime.newInstanceGmt(FieldInitializer.defaultDateTime.dateGmt(), (Time) potentiallyUnitializedDecimal)))
+        .getTime();
     }
   }
 
