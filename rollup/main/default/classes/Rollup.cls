@@ -958,7 +958,9 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         Object priorVal = lookupRecord.get(rollup.opFieldOnLookupObject);
         Object newVal = this.getRollupVal(rollup, calcItems, priorVal);
         lookupRecord.put(rollup.opFieldOnLookupObject, newVal);
-        recordsToUpdate.add(lookupRecord);
+        if (priorVal != newVal) {
+          recordsToUpdate.add(lookupRecord);
+        }
       }
     }
 
@@ -1042,6 +1044,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private abstract class RollupCalculator {
+    protected Boolean shouldShortCircuit = false;
     protected Object returnVal;
     public RollupCalculator(Object returnVal, SObjectField operationField) {
       this.returnVal = returnVal == null ? FieldInitializer.getDefaultValue(operationField) : returnVal;
@@ -1079,7 +1082,6 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private virtual class DecimalRollupCalculator extends RollupCalculator {
-    private Boolean shouldShortCircuit = false;
     public DecimalRollupCalculator(Object priorVal, SObjectField operationField) {
       super(priorVal, operationField);
     }
@@ -1327,14 +1329,29 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private class StringRollupCalculator extends RollupCalculator {
-    // TODO: min/max for string fields
     public StringRollupCalculator(Object priorVal, SObjectField operationField) {
       super(priorVal, operationField);
     }
 
-    public override void performRollup(Op op, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
+    public override void performRollup(Op operation, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
       String stringVal = (String) this.returnVal;
-      switch on op {
+      if (this.shouldShortCircuit) {
+        String newVal = (String) calcItem.get(operationField);
+        switch on operation {
+          when UPDATE_MAX {
+            if (newVal > stringVal) {
+              this.returnVal = newVal;
+            }
+          }
+          when UPDATE_MIN {
+            if (newVal < stringVal || String.isBlank(stringVal)) {
+              this.returnVal = newVal;
+            }
+          }
+        }
+        return;
+      }
+      switch on operation {
         when CONCAT {
           stringVal += (String) calcItem.get(operationField);
         }
@@ -1347,6 +1364,38 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           String existingVal = (String) calcItem.get(operationField);
           Integer index = stringVal.indexOf(existingVal);
           stringVal = stringVal.replace(existingVal, '');
+        }
+        when MAX, MIN {
+          String newVal = (String) calcItem.get(operationField);
+          if (operation == Op.MAX && (newVal > stringVal || String.isBlank(stringVal))) {
+            stringVal = newVal;
+          } else if (operation == Op.MIN && (newVal < stringVal || String.isBlank(stringVal))) {
+            stringVal = newVal;
+          }
+        }
+        when UPDATE_MAX, UPDATE_MIN, DELETE_MAX, DELETE_MIN {
+          String newVal = (String) calcItem.get(operationField);
+          String priorString = (String) (oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id).get(operationField) : newVal);
+
+          if (
+            (operation.name().contains(Op.MAX.name()) && priorString == stringVal && newVal <= stringVal) ||
+            (operation.name().contains(Op.MIN.name()) &&
+            priorString == stringVal &&
+            newVal >= stringVal)
+          ) {
+            this.shouldShortCircuit = true;
+            Object potentialReturnValue = this.calculateNewAggregateValue(
+              new List<Id>(oldCalcItems.keySet()),
+              operation,
+              operationField,
+              calcItem.getSObjectType()
+            );
+            stringVal = potentialReturnValue == null ? '' : (String) potentialReturnValue;
+          } else if (operation == Op.UPDATE_MAX && newVal > stringVal) {
+            stringVal = newVal;
+          } else if (operation == Op.UPDATE_MIN && (newVal < stringVal || String.isBlank(stringVal))) {
+            stringVal = newVal;
+          }
         }
       }
       this.returnVal = stringVal.normalizeSpace();

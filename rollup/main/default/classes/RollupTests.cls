@@ -155,9 +155,7 @@ private class RollupTests {
     Rollup.countFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
     Test.stopTest();
 
-    System.assertEquals(1, mock.Records.size(), 'Records should have been populated COUNT AFTER_UPDATE');
-    Account updatedAcc = (Account) mock.Records[0];
-    System.assertEquals(1, updatedAcc.AnnualRevenue, 'COUNT AFTER_UPDATE should not change when field is updated');
+    System.assertEquals(0, mock.Records.size(), 'Records should not have been populated COUNT AFTER_UPDATE');
   }
 
   @isTest
@@ -664,6 +662,129 @@ private class RollupTests {
     System.assertEquals(1, mock.Records.size(), 'Records should have been populated CONCAT BEFORE_DELETE');
     Account updatedAcc = (Account) mock.Records[0];
     System.assertEquals('beginning something', updatedAcc.AccountNumber, 'CONCAT BEFORE_DELETE should replace the outgoing string value with empty string');
+  }
+
+  @isTest
+  static void shouldMaxOnStringsOnInsert() {
+    List<Opportunity> testOpps = new List<Opportunity>{ new Opportunity(Name = 'A'), new Opportunity(Name = 'Z') };
+
+    DMLMock mock = getMock(testOpps);
+    Rollup.TriggerContext = TriggerOperation.AFTER_INSERT;
+
+    Test.startTest();
+    Rollup.maxFromTrigger(Opportunity.Name, Opportunity.AccountId, Account.Id, Account.AccountNumber, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX AFTER_INSERT STRING');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals('Z', updatedAcc.AccountNumber, 'MAX AFTER_INSERT should take the maximum string');
+  }
+
+  @isTest
+  static void shouldMinOnStringsOnInsert() {
+    List<Opportunity> testOpps = new List<Opportunity>{ new Opportunity(Name = 'A'), new Opportunity(Name = 'Z') };
+
+    DMLMock mock = getMock(testOpps);
+    Rollup.TriggerContext = TriggerOperation.AFTER_INSERT;
+
+    Test.startTest();
+    Rollup.minFromTrigger(Opportunity.Name, Opportunity.AccountId, Account.Id, Account.AccountNumber, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN AFTER_INSERT STRING');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals('A', updatedAcc.AccountNumber, 'MIN AFTER_INSERT should take the minimum string');
+  }
+
+  @isTest
+  static void shouldMinOnStringsOnUpdate() {
+    List<Opportunity> testOpps = new List<Opportunity>{
+      new Opportunity(Name = 'B', Id = TestingUtils.generateId(Opportunity.SObjectType)),
+      new Opportunity(Name = 'A', Id = TestingUtils.generateId(Opportunity.SObjectType))
+    };
+
+    DMLMock mock = getMock(testOpps);
+    Rollup.TriggerContext = TriggerOperation.AFTER_UPDATE;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>{
+      testOpps[0].Id => new Opportunity(Id = testOpps[0].Id, Name = ''),
+      testOpps[1].Id => new Opportunity(Id = testOpps[1].Id, Name = 'X')
+    };
+
+    Test.startTest();
+    Rollup.minFromTrigger(Opportunity.Name, Opportunity.AccountId, Account.Id, Account.AccountNumber, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN AFTER_UPDATE STRING');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals('A', updatedAcc.AccountNumber, 'MIN AFTER_UPDATE should take the minimum string');
+  }
+
+  @isTest
+  static void shouldMaxOnStringsOnUpdate() {
+    List<Opportunity> testOpps = new List<Opportunity>{
+      new Opportunity(Name = '', Id = TestingUtils.generateId(Opportunity.SObjectType)),
+      new Opportunity(Name = 'A', Id = TestingUtils.generateId(Opportunity.SObjectType))
+    };
+
+    DMLMock mock = getMock(testOpps);
+    Rollup.TriggerContext = TriggerOperation.AFTER_UPDATE;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>{
+      testOpps[0].Id => new Opportunity(Id = testOpps[0].Id, Name = ''),
+      testOpps[1].Id => new Opportunity(Id = testOpps[1].Id, Name = 'A')
+    };
+
+    Test.startTest();
+    Rollup.maxFromTrigger(Opportunity.Name, Opportunity.AccountId, Account.Id, Account.AccountNumber, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX AFTER_UPDATE STRING');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals('A', updatedAcc.AccountNumber, 'MAX AFTER_UPDATE should take the maximum string');
+  }
+
+  @isTest
+  static void shouldMinOnStringsBeforeDelete() {
+    Account acc = [SELECT Id, AccountNumber FROM Account];
+    acc.AccountNumber = 'A';
+    update acc;
+
+    List<Opportunity> testOpps = new List<Opportunity>{ new Opportunity(Name = 'A', Id = TestingUtils.generateId(Opportunity.SObjectType)) };
+
+    DMLMock mock = getMock(testOpps);
+    Rollup.TriggerContext = TriggerOperation.BEFORE_DELETE;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>{ testOpps[0].Id => new Opportunity(Id = testOpps[0].Id, Name = 'A') };
+
+    Test.startTest();
+    Rollup.minFromTrigger(Opportunity.Name, Opportunity.AccountId, Account.Id, Account.AccountNumber, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN BEFORE_DELETE STRING');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals('', updatedAcc.AccountNumber, 'MIN BEFORE_DELETE should take the minimum string');
+  }
+
+  @isTest
+  static void shouldMaxOnStringsBeforeDelete() {
+    Account acc = [SELECT Id, AccountNumber FROM Account];
+    acc.AccountNumber = 'A';
+    update acc;
+
+    Opportunity opp = new Opportunity(StageName = 'test max on delete', CloseDate = System.today(), Name = 'Z', AccountId = acc.Id);
+    insert opp;
+
+    List<Opportunity> testOpps = new List<Opportunity>{ new Opportunity(Name = 'A', Id = TestingUtils.generateId(Opportunity.SObjectType)) };
+
+    DMLMock mock = getMock(testOpps);
+    Rollup.TriggerContext = TriggerOperation.BEFORE_DELETE;
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>(testOpps);
+
+    Test.startTest();
+    Rollup.maxFromTrigger(Opportunity.Name, Opportunity.AccountId, Account.Id, Account.AccountNumber, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX BEFORE_DELETE STRING');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(opp.Name, updatedAcc.AccountNumber, 'MAX BEFORE_DELETE should take the maximum string');
   }
 
   @isTest
