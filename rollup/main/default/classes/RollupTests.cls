@@ -331,7 +331,7 @@ private class RollupTests {
     updatedOpp.Amount = 150;
     List<Opportunity> opps = new List<Opportunity>{ updatedOpp };
     Rollup.records = opps;
-    Rollup.oldRecordsMap = new Map<Id, Opportunity>(originalOpps);
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>(new List<Opportunity>{ opp });
     Rollup.shouldRun = true;
     DMLMock mock = new DMLMock();
     Rollup.DML = mock;
@@ -502,7 +502,7 @@ private class RollupTests {
     updatedOpp.Amount = 200;
     List<Opportunity> opps = new List<Opportunity>{ updatedOpp };
     Rollup.records = opps;
-    Rollup.oldRecordsMap = new Map<Id, Opportunity>(originalOpps);
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>(new List<Opportunity>{ opp });
     Rollup.shouldRun = true;
     DMLMock mock = new DMLMock();
     Rollup.DML = mock;

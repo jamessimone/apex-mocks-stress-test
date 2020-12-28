@@ -1149,56 +1149,36 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
             returnVal = numericValue;
           }
         }
-        when UPDATE_MAX {
-          Decimal newVal = this.getNumericValue(calcItem, operationField);
-          Decimal thisPriorVal = this.getNumericValue((oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id) : calcItem), operationField);
-          if (thisPriorVal != 0 && thisPriorVal == returnVal && newVal < thisPriorVal) {
-            this.shouldShortCircuit = true;
-            Decimal maxValue = (Decimal) this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
-            returnVal = this.getDecimalOrDefault(maxValue);
-            if (returnVal == 0) {
-              returnVal = FieldInitializer.minimumLongValue;
-            }
-          } else if (newVal > returnVal) {
-            returnVal = newVal;
-          }
-        }
-        when DELETE_MAX, DELETE_MIN {
-          // a much simpler case than updating, because we can simply exclude all items being deleted from the re-calc operation
-          Decimal numericValue = this.getNumericValue(calcItem, operationField);
-          if (numericValue == returnVal && returnVal != 0) {
-            this.shouldShortCircuit = true;
-            Decimal potentialReturnValue = (Decimal) this.calculateNewAggregateValue(
-              new List<Id>(oldCalcItems.keySet()),
-              operation,
-              operationField,
-              calcItem.getSObjectType()
-            );
-            returnVal = this.getDecimalOrDefault(potentialReturnValue);
-            if (operation == Op.DELETE_MIN && returnVal == 0) {
-              returnVal = FieldInitializer.maximumLongValue;
-            } else if (operation == Op.DELETE_MAX && returnVal == 0) {
-              returnVal = FieldInitializer.minimumLongValue;
-            }
-          }
-        }
         when MIN {
           Decimal numericValue = this.getNumericValue(calcItem, operationField);
           if (numericValue < returnVal || returnVal == 0) {
             returnVal = numericValue;
           }
         }
-        when UPDATE_MIN {
+        when UPDATE_MAX, UPDATE_MIN, DELETE_MAX, DELETE_MIN {
           Decimal newVal = this.getNumericValue(calcItem, operationField);
           Decimal thisPriorVal = this.getNumericValue((oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id) : calcItem), operationField);
-          if (thisPriorVal != 0 && thisPriorVal == returnVal && newVal > thisPriorVal) {
+          if (
+            (operation.name().contains(Op.MAX.name()) && thisPriorVal != 0 && thisPriorVal == returnVal && newVal <= thisPriorVal) ||
+            (operation.name().contains(Op.MIN.name()) &&
+            thisPriorVal != 0 &&
+            thisPriorVal == returnVal &&
+            newVal >= thisPriorVal)
+          ) {
             this.shouldShortCircuit = true;
-            Decimal minValue = (Decimal) this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
-            returnVal = this.getDecimalOrDefault(minValue);
+            Object potentialReturnValue = (Decimal) this.calculateNewAggregateValue(
+              new List<Id>(oldCalcItems.keySet()),
+              operation,
+              operationField,
+              calcItem.getSObjectType()
+            );
+            returnVal = this.getDecimalOrDefault(potentialReturnValue);
             if (returnVal == 0) {
-              returnVal = FieldInitializer.maximumLongValue;
+              returnVal = operation == Op.UPDATE_MAX ? FieldInitializer.minimumLongValue : FieldInitializer.maximumLongValue;
             }
-          } else if (newVal < returnVal || returnVal == 0) {
+          } else if (operation == Op.UPDATE_MAX && newVal > returnVal) {
+            returnVal = newVal;
+          } else if (operation == Op.UPDATE_MIN && newVal < returnVal || returnVal == 0) {
             returnVal = newVal;
           }
         }
