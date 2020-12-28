@@ -2,7 +2,10 @@
 private class RollupTests {
   @TestSetup
   static void setup() {
-    insert new Account(Name = 'RollupTests');
+    Account acc = new Account(Name = 'RollupTests');
+    insert acc;
+    Contract con = new Contract(Name = 'Datetime tests', AccountId = acc.Id);
+    insert con;
   }
 
   private class DMLMock extends Rollup.DMLHelper {
@@ -703,52 +706,164 @@ private class RollupTests {
   }
 
   @isTest
-  static void shouldMaxDatetimeOnInsert() {
-    Account acc = [SELECT Id FROM Account];
-    Contract con = new Contract(Name = 'Max datetime on insert test', AccountId = acc.Id);
-    insert con;
+  static void shouldMinDateOnInsertWhereParentDateIsNull() {
+    Campaign camp = new Campaign(Name = 'Test Date with no initialized value');
+    insert camp;
 
-    Event eventOne = new Event(ActivityDate = System.today().addDays(-50), WhatId = con.Id);
-    Event eventTwo = new Event(ActivityDate = System.today().addDays(50), WhatId = con.Id);
+    Task taskOne = new Task(Subject = 'Test One', ActivityDate = System.today().addDays(-50), WhatId = camp.Id);
+    Task taskTwo = new Task(Subject = 'Test Two', ActivityDate = System.today().addDays(50), WhatId = camp.Id);
+
+    DMLMock mock = loadMock(new List<Task>{ taskOne, taskTwo });
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+
+    Test.startTest();
+    Rollup.minFromTrigger(Task.ActivityDate, Task.WhatId, Campaign.Id, Campaign.EndDate, Campaign.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN DATE AFTER_INSERT');
+    Campaign updatedCamp = (Campaign) mock.Records[0];
+    System.assertEquals(taskOne.ActivityDate, updatedCamp.EndDate);
+  }
+
+  @isTest
+  static void shouldMaxDatetimeOnInsert() {
+    Contract con = [SELECT Id FROM Contract];
+
+    Event eventOne = new Event(ActivityDateTime = System.now().addDays(-50), WhatId = con.Id);
+    Event eventTwo = new Event(ActivityDateTime = System.now().addDays(50), WhatId = con.Id);
 
     DMLMock mock = loadMock(new List<Event>{ eventOne, eventTwo });
     Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
 
     Test.startTest();
-    Rollup.maxFromTrigger(Event.ActivityDate, Event.WhatId, Contract.Id, Contract.ActivatedDate, Contract.SObjectType).runCalc();
+    Rollup.maxFromTrigger(Event.ActivityDateTime, Event.WhatId, Contract.Id, Contract.ActivatedDate, Contract.SObjectType).runCalc();
     Test.stopTest();
 
     System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX DATETIME AFTER_INSERT');
     Contract updatedContract = (Contract) mock.Records[0];
-    System.assertEquals(eventTwo.ActivityDate, updatedContract.ActivatedDate);
+    System.assertEquals(eventTwo.ActivityDateTime, updatedContract.ActivatedDate);
   }
 
   @isTest
   static void shouldMinDatetimeOnInsert() {
-    Account acc = [SELECT Id FROM Account];
-    Contract con = new Contract(Name = 'Max datetime on insert test', AccountId = acc.Id);
-    insert con;
+    Contract con = [SELECT Id FROM Contract];
 
-    Event eventOne = new Event(ActivityDate = System.today().addDays(-50), WhatId = con.Id);
-    Event eventTwo = new Event(ActivityDate = System.today().addDays(50), WhatId = con.Id);
+    Event eventOne = new Event(ActivityDateTime = System.now().addDays(-50), WhatId = con.Id);
+    Event eventTwo = new Event(ActivityDateTime = System.now().addDays(50), WhatId = con.Id);
 
     DMLMock mock = loadMock(new List<Event>{ eventOne, eventTwo });
     Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
 
     Test.startTest();
-    Rollup.minFromTrigger(Event.ActivityDate, Event.WhatId, Contract.Id, Contract.ActivatedDate, Contract.SObjectType).runCalc();
+    Rollup.minFromTrigger(Event.ActivityDateTime, Event.WhatId, Contract.Id, Contract.ActivatedDate, Contract.SObjectType).runCalc();
     Test.stopTest();
 
     System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN DATETIME AFTER_INSERT');
     Contract updatedContract = (Contract) mock.Records[0];
-    System.assertEquals(eventOne.ActivityDate, updatedContract.ActivatedDate);
+    System.assertEquals(eventOne.ActivityDateTime, updatedContract.ActivatedDate);
   }
+
+  @isTest
+  static void shouldMinDatetimeOnUpdate() {
+    Contract con = [SELECT Id FROM Contract];
+    con.ActivatedDate = System.now();
+    update con;
+
+    // now the "new" version of eventOne is no longer the min
+    Event eventOne = new Event(ActivityDateTime = con.ActivatedDate.addDays(50), WhatId = con.Id, Id = TestingUtils.generateId(Event.SObjectType));
+    Event eventTwo = new Event(ActivityDateTime = con.ActivatedDate.addDays(-25), WhatId = con.Id, Id = TestingUtils.generateId(Event.SObjectType));
+
+    DMLMock mock = loadMock(new List<Event>{ eventOne, eventTwo });
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+    // the point here is that the old record equaled the existing min
+    Rollup.oldRecordsMap = new Map<Id, Event>{ eventOne.Id => new Event(Id = eventOne.Id, WhatId = con.Id, ActivityDateTime = con.ActivatedDate) };
+
+    Test.startTest();
+    Rollup.minFromTrigger(Event.ActivityDateTime, Event.WhatId, Contract.Id, Contract.ActivatedDate, Contract.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN DATETIME AFTER_UPDATE');
+    Contract updatedContract = (Contract) mock.Records[0];
+    System.assertEquals(eventTwo.ActivityDateTime, updatedContract.ActivatedDate);
+  }
+
+  @isTest
+  static void shouldMaxDatetimeOnUpdate() {
+    Contract con = [SELECT Id FROM Contract];
+    con.ActivatedDate = System.now();
+    update con;
+
+    // now the "new" version of eventOne is no longer the max
+    Event eventOne = new Event(ActivityDateTime = con.ActivatedDate.addDays(-25), WhatId = con.Id, Id = TestingUtils.generateId(Event.SObjectType));
+    Event eventTwo = new Event(ActivityDateTime = con.ActivatedDate.addDays(50), WhatId = con.Id, Id = TestingUtils.generateId(Event.SObjectType));
+
+    DMLMock mock = loadMock(new List<Event>{ eventOne, eventTwo });
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+    // the point here is that the old record equaled the existing max
+    Rollup.oldRecordsMap = new Map<Id, Event>{ eventOne.Id => new Event(Id = eventOne.Id, WhatId = con.Id, ActivityDateTime = con.ActivatedDate) };
+
+    Test.startTest();
+    Rollup.maxFromTrigger(Event.ActivityDateTime, Event.WhatId, Contract.Id, Contract.ActivatedDate, Contract.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX DATETIME AFTER_UPDATE');
+    Contract updatedContract = (Contract) mock.Records[0];
+    System.assertEquals(eventTwo.ActivityDateTime, updatedContract.ActivatedDate);
+  }
+
+  @isTest
+  static void shouldMaxDatetimeOnDelete() {
+    Contract con = [SELECT Id FROM Contract];
+    con.ActivatedDate = System.now();
+    update con;
+
+    Event eventOne = new Event(ActivityDateTime = con.ActivatedDate, WhatId = con.Id, Id = TestingUtils.generateId(Event.SObjectType));
+    Event eventTwo = new Event(ActivityDateTime = con.ActivatedDate.addDays(50), WhatId = con.Id, DurationInMinutes = 50);
+    insert eventTwo;
+
+    DMLMock mock = loadMock(new List<Event>{ eventOne });
+    Rollup.triggerContext = TriggerOperation.BEFORE_DELETE;
+    Rollup.oldRecordsMap = new Map<Id, Event>(new List<Event>{ eventOne });
+
+    Test.startTest();
+    Rollup.maxFromTrigger(Event.ActivityDateTime, Event.WhatId, Contract.Id, Contract.ActivatedDate, Contract.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX DATETIME BEFORE_DELETE');
+    Contract updatedContract = (Contract) mock.Records[0];
+    System.assertEquals(eventTwo.ActivityDateTime, updatedContract.ActivatedDate);
+  }
+
+  @isTest
+  static void shouldMinDatetimeOnDelete() {
+    Contract con = [SELECT Id FROM Contract];
+    con.ActivatedDate = System.now();
+    update con;
+
+    Event eventOne = new Event(ActivityDateTime = con.ActivatedDate, WhatId = con.Id, Id = TestingUtils.generateId(Event.SObjectType));
+    Event eventTwo = new Event(ActivityDateTime = con.ActivatedDate.addDays(-50), WhatId = con.Id, DurationInMinutes = 50);
+    insert eventTwo;
+
+    DMLMock mock = loadMock(new List<Event>{ eventOne });
+    Rollup.triggerContext = TriggerOperation.BEFORE_DELETE;
+    Rollup.oldRecordsMap = new Map<Id, Event>(new List<Event>{ eventOne });
+
+    Test.startTest();
+    Rollup.minFromTrigger(Event.ActivityDateTime, Event.WhatId, Contract.Id, Contract.ActivatedDate, Contract.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN DATETIME BEFORE_DELETE');
+    Contract updatedContract = (Contract) mock.Records[0];
+    System.assertEquals(eventTwo.ActivityDateTime, updatedContract.ActivatedDate);
+  }
+
   /**
    * there is only ONE standard SObject, BusinessHours, that has a Time field on it.
    * you can't do DML on BusinessHours, which necessitated the addition of the "queryRecords" static variable
    * just to test the Time portion of the code. Alas. Despite this, I hope this test highlights the power of the Rollup class:
    * you can do same-object rollups as long as you have a String/Id field to point to.
    */
+
   @isTest
   static void shouldMinTimeOnInsert() {
     BusinessHours first = new BusinessHours(Id = TestingUtils.generateId(BusinessHours.SObjectType));
@@ -764,7 +879,7 @@ private class RollupTests {
     Rollup.minFromTrigger(BusinessHours.FridayEndTime, BusinessHours.Name, BusinessHours.Id, BusinessHours.FridayEndTime, BusinessHours.SObjectType).runCalc();
     Test.stopTest();
 
-    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN DATETIME AFTER_INSERT');
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN TIME AFTER_INSERT');
     first = (BusinessHours) mock.Records[0];
     System.assertEquals(bh.FridayEndTime, first.FridayEndTime);
   }
@@ -784,12 +899,89 @@ private class RollupTests {
     Rollup.maxFromTrigger(BusinessHours.FridayEndTime, BusinessHours.Name, BusinessHours.Id, BusinessHours.FridayEndTime, BusinessHours.SObjectType).runCalc();
     Test.stopTest();
 
-    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN DATETIME AFTER_INSERT');
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX TIME AFTER_INSERT');
     first = (BusinessHours) mock.Records[0];
     System.assertEquals(b2.FridayEndTime, first.FridayEndTime);
   }
 
-  // TODO: illegal arg test, update and delete tests for dates/datetimes/times
+  @isTest
+  static void shouldMaxTimeOnUpdate() {
+    BusinessHours first = new BusinessHours(Id = TestingUtils.generateId(BusinessHours.SObjectType), FridayEndTime = Time.newInstance(0, 0, 0, 0));
+    Rollup.queryRecords = new List<BusinessHours>{ first };
+
+    BusinessHours bh = new BusinessHours(
+      FridayEndTime = Time.newInstance(5, 5, 5, 5),
+      Name = first.Id,
+      Id = TestingUtils.generateId(BusinessHours.SObjectType)
+    );
+    BusinessHours b2 = new BusinessHours(
+      FridayEndTime = Time.newInstance(6, 6, 6, 6),
+      Name = first.Id,
+      Id = TestingUtils.generateId(BusinessHours.SObjectType)
+    );
+
+    DMLMock mock = loadMock(new List<BusinessHours>{ bh, b2 });
+    Rollup.oldRecordsMap = new Map<Id, BusinessHours>{ bh.Id => new BusinessHours(FridayEndTime = Time.newInstance(12, 12, 12, 12), Id = bh.Id) };
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+
+    Test.startTest();
+    Rollup.maxFromTrigger(BusinessHours.FridayEndTime, BusinessHours.Name, BusinessHours.Id, BusinessHours.FridayEndTime, BusinessHours.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX TIME AFTER_UPDATE');
+    first = (BusinessHours) mock.Records[0];
+    System.assertEquals(b2.FridayEndTime, first.FridayEndTime);
+  }
+
+  @isTest
+  static void shouldMinTimeOnUpdate() {
+    BusinessHours first = new BusinessHours(Id = TestingUtils.generateId(BusinessHours.SObjectType), FridayEndTime = Time.newInstance(0, 0, 0, 0));
+    Rollup.queryRecords = new List<BusinessHours>{ first };
+
+    BusinessHours bh = new BusinessHours(
+      FridayEndTime = Time.newInstance(5, 5, 5, 5),
+      Name = first.Id,
+      Id = TestingUtils.generateId(BusinessHours.SObjectType)
+    );
+    BusinessHours b2 = new BusinessHours(
+      FridayEndTime = Time.newInstance(6, 6, 6, 6),
+      Name = first.Id,
+      Id = TestingUtils.generateId(BusinessHours.SObjectType)
+    );
+
+    DMLMock mock = loadMock(new List<BusinessHours>{ bh, b2 });
+    Rollup.oldRecordsMap = new Map<Id, BusinessHours>{ bh.Id => new BusinessHours(FridayEndTime = Time.newInstance(12, 12, 12, 12), Id = bh.Id) };
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+
+    Test.startTest();
+    Rollup.minFromTrigger(BusinessHours.FridayEndTime, BusinessHours.Name, BusinessHours.Id, BusinessHours.FridayEndTime, BusinessHours.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MIN TIME AFTER_UPDATE');
+    first = (BusinessHours) mock.Records[0];
+    System.assertEquals(bh.FridayEndTime, first.FridayEndTime);
+  }
+
+  // Because the only real delete case for Time-types is when the max/min equals the amount being deleted, which involves re-querying, we'll skip those cases
+
+  @isTest
+  static void shouldThrowExceptionWhenTryingToOperateOnDisallowedFieldTypes() {
+    Account acc = [SELECT Id FROM Account];
+    DMLMock mock = loadMock(new List<Task>{ new Task(ActivityDate = System.today(), WhatId = acc.Id) });
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+
+    Exception ex;
+    try {
+      Test.startTest();
+      Rollup.maxFromTrigger(Task.ActivityDate, Task.WhatId, Account.Id, Account.BillingAddress, Account.SObjectType).runCalc();
+      Test.stopTest();
+    } catch (Exception e) {
+      ex = e;
+    }
+
+    System.assertNotEquals(null, ex);
+    System.assertEquals('Field: BillingAddress of type: ADDRESS specified invalid for rollup operation', ex.getMessage());
+  }
 
   /** Invocable tests */
 

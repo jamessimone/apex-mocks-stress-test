@@ -1049,7 +1049,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
     public abstract void performRollup(Op op, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField);
 
-    protected Object calculateNewAggregateValue(List<String> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
+    protected virtual Object calculateNewAggregateValue(List<String> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
       String operationName = operation.name().substringAfter('_');
       String alias = operationName.toLowerCase() + 'field';
       String query = 'SELECT ' + operationName + '(' + operationField + ')' + alias + ' FROM ' + sObjectType + ' WHERE Id != :excludedItems';
@@ -1092,7 +1092,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
 
     protected virtual Decimal getNumericChangedValue(SObject calcItem, SObjectfield operationField, Map<Id, SObject> oldCalcItems) {
       Decimal newVal = this.getNumericValue(calcItem, operationField);
-      Decimal oldVal = this.getNumericValue(oldCalcItems.get(calcItem.Id), operationField);
+      Decimal oldVal = this.getNumericValue((oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id) : calcItem), operationField);
       // could be negative, could be positive ... could be 0!
       return newVal - oldVal;
     }
@@ -1138,8 +1138,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           }
         }
         when UPDATE_MAX {
-          Decimal thisPriorVal = this.getNumericValue(oldCalcItems.get(calcItem.Id), operationField);
           Decimal newVal = this.getNumericValue(calcItem, operationField);
+          Decimal thisPriorVal = this.getNumericValue((oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id) : calcItem), operationField);
           if (thisPriorVal != 0 && thisPriorVal == returnVal && newVal < thisPriorVal) {
             this.shouldShortCircuit = true;
             Decimal maxValue = (Decimal) this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
@@ -1171,8 +1171,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           }
         }
         when UPDATE_MIN {
-          Decimal thisPriorVal = this.getNumericValue(oldCalcItems.get(calcItem.Id), operationField);
           Decimal newVal = this.getNumericValue(calcItem, operationField);
+          Decimal thisPriorVal = this.getNumericValue((oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id) : calcItem), operationField);
           if (thisPriorVal != 0 && thisPriorVal == returnVal && newVal > thisPriorVal) {
             this.shouldShortCircuit = true;
             Decimal minValue = (Decimal) this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
@@ -1193,16 +1193,35 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
 
     public virtual override Object getReturnValue() {
-      // one of the highlights of working on this - the moment I went to implement Datetimes and realized DecimalRollupCalculator had everything I needed
       return Datetime.newInstance(((Decimal) this.returnVal).longValue());
     }
 
     protected virtual override Decimal getDecimalOrDefault(Object potentiallyUnitializedDecimal) {
-      return potentiallyUnitializedDecimal == null ? FieldInitializer.defaultDateTime.getTime() : ((Datetime) potentiallyUnitializedDecimal).getTime();
+      if (potentiallyUnitializedDecimal == null) {
+        return FieldInitializer.defaultDateTime.getTime();
+      }
+      // one of the worst things about SOQL is that values retrieved have the millisecond values truncated
+      Datetime datetimeWithMs = potentiallyUnitializedDecimal instanceof Decimal
+        ? Datetime.newInstance(((Decimal)potentiallyUnitializedDecimal).longValue())
+        : ((Datetime) potentiallyUnitializedDecimal);
+      return Datetime.newInstanceGmt(
+          datetimeWithMs.yearGmt(),
+          datetimeWithMs.monthGmt(),
+          datetimeWithMs.dayGmt(),
+          datetimeWithMs.hourGmt(),
+          datetimeWithMs.minuteGmt(),
+          datetimeWithMs.secondGmt()
+        )
+        .getTime();
+    }
+
+    protected override Object calculateNewAggregateValue(List<String> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
+      return ((Datetime)super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType)).getTime();
     }
   }
 
   private class DateRollupCalculator extends DatetimeRollupCalculator {
+    // for Date, it's not necessary to override the "getDecimalOrDefault" method in DatetimeRollupCalculator because the conversion only happens in "getReturnValue"
     public DateRollupCalculator(Object priorVal, SObjectField operationField) {
       super(Datetime.newInstanceGmt((Date) priorVal, Time.newInstance(0, 0, 0, 0)), operationField);
     }
@@ -1266,8 +1285,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           stringVal += (String) calcItem.get(operationField);
         }
         when UPDATE_CONCAT {
-          String priorString = (String) oldCalcItems.get(calcItem.Id).get(operationField);
           String newVal = (String) calcItem.get(operationField);
+          String priorString = (String) (oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id).get(operationField) : newVal);
           stringVal = stringVal.replace(priorString, newVal);
         }
         when DELETE_CONCAT {
@@ -1293,18 +1312,13 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       Decimal oldSum = (Decimal) Database.query('SELECT SUM(' + operationField + ') sum1 FROM ' + sObjectType + ' WHERE Id != :objIds')[0].get('sum1');
 
       List<SObject> applicableCalcItems = operationType == Op.DELETE_AVERAGE ? new List<SObject>() : calcItems;
-      Decimal newSum = this.getSumFromCalcItems(applicableCalcItems, operationField);
-
-      average = (oldSum + newSum) / (countOfPreExistingItems + applicableCalcItems.size());
-      return average;
-    }
-
-    private Decimal getSumFromCalcItems(List<SObject> calcItems, SObjectField operationField) {
       Decimal newSum = 0;
       for (SObject calcItem : calcItems) {
         newSum += (Decimal) calcItem.get(operationField);
       }
-      return newSum;
+
+      average = (oldSum + newSum) / (countOfPreExistingItems + applicableCalcItems.size());
+      return average;
     }
   }
 }
