@@ -831,10 +831,16 @@ private class RollupTests {
   static void shouldAverageOnInsert() {
     // average is a special case; even on insert, we have to also check for pre-existing records existing
     Account acc = [SELECT Id, AnnualRevenue FROM Account];
-    acc.AnnualRevenue = 150000;
+    acc.AnnualRevenue = 100;
     update acc;
 
-    Opportunity testOpp = new Opportunity(Amount = 100, Name = 'Pre-existing', StageName = 'random', CloseDate = System.today(), AccountId = acc.Id);
+    Opportunity testOpp = new Opportunity(
+      Amount = acc.AnnualRevenue,
+      Name = 'Pre-existing',
+      StageName = 'random',
+      CloseDate = System.today(),
+      AccountId = acc.Id
+    );
     insert testOpp;
 
     List<Opportunity> opps = new List<Opportunity>{
@@ -1473,6 +1479,31 @@ private class RollupTests {
 
     System.assertEquals(1, mock.Records.size(), 'Rollup run should have run');
     System.assertEquals('Completed', [SELECT Status FROM AsyncApexJob WHERE JobType = 'Queueable']?.Status);
+  }
+
+  /** Schedulable tests */
+  @isTest
+  static void shouldThrowExceptionForBadQuery() {
+    // it's a date field - you tell ME why this query is invalid!
+    String veryBadQuery = 'SELECT MAX(ActivityDate) FROM Task';
+
+    Exception ex;
+    try {
+      Rollup.schedule('Test bad query', '0 0 0 0 0', veryBadQuery, new List<Id>(), null);
+    } catch (Exception e) {
+      ex = e;
+    }
+
+    System.assertNotEquals(null, ex);
+  }
+
+  @isTest
+  static void shouldScheduleSuccessfullyForGoodQuery() {
+    String goodQuery = 'SELECT Id, StageName FROM Opportunity WHERE CreatedDate > YESTERDAY';
+
+    String jobId = Rollup.schedule('Test good query' + System.now(), '0 0 0 * * ?', goodQuery, new List<Id>(), null);
+
+    System.assertNotEquals(null, jobId);
   }
 
   //** Helpers */

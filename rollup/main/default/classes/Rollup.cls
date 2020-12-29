@@ -1202,7 +1202,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
     public abstract void performRollup(Op op, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField);
 
-    protected virtual Object calculateNewAggregateValue(List<String> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
+    protected virtual Object calculateNewAggregateValue(Set<Id> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
       String operationName = operation.name().substringAfter('_');
       String alias = operationName.toLowerCase() + 'field';
       String query = 'SELECT ' + operationName + '(' + operationField + ')' + alias + ' FROM ' + sObjectType + ' WHERE Id != :excludedItems';
@@ -1237,7 +1237,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
             this.distinctValues.add(calcItem.get(operationField));
           }
           this.shouldShortCircuit = true;
-          this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
+          this.calculateNewAggregateValue(new Set<Id>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
         }
         when UPDATE_COUNT_DISTINCT {
           Object currentVal = calcItem.get(operationField);
@@ -1245,14 +1245,14 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           if (currentVal != priorCalcVal) {
             this.distinctValues.add(currentVal);
             this.shouldShortCircuit = true;
-            this.calculateNewAggregateValue(new List<Id>(oldCalcItems.keySet()), operation, operationField, calcItem.getSObjectType());
+            this.calculateNewAggregateValue(oldCalcItems.keySet(), operation, operationField, calcItem.getSObjectType());
           }
         }
       }
       this.returnVal = this.distinctValues.size();
     }
 
-    protected override Object calculateNewAggregateValue(List<String> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
+    protected override Object calculateNewAggregateValue(Set<Id> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
       Boolean isGroupable = operationField.getDescribe().isGroupable();
       String query =
         'SELECT ' +
@@ -1336,8 +1336,6 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           returnVal += this.getNumericChangedValue(calcItem, operationField, oldCalcItems);
         }
         when MAX {
-          // if only expression operators were themselves classes in Apex. the code for MAX/MIN can only be shared
-          // on update routes; the only difference in logic is the greater than and less than signs
           Decimal numericValue = this.getNumericValue(calcItem, operationField);
           if (numericValue > returnVal || returnVal == 0) {
             returnVal = numericValue;
@@ -1361,7 +1359,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           ) {
             this.shouldShortCircuit = true;
             Object potentialReturnValue = (Decimal) this.calculateNewAggregateValue(
-              new List<Id>(oldCalcItems.keySet()),
+              oldCalcItems.keySet(),
               operation,
               operationField,
               calcItem.getSObjectType()
@@ -1387,17 +1385,15 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
 
     public virtual override Object getReturnValue() {
-      if (((Decimal) this.returnVal).longValue() == FieldInitializer.maximumLongValue) {
-        this.returnVal = 0;
-      }
-      return Datetime.newInstance(((Decimal) this.returnVal).longValue());
+      Decimal superReturnVal = (Decimal) super.getReturnValue();
+      return Datetime.newInstance(superReturnVal.longValue());
     }
 
     protected virtual override Decimal getDecimalOrDefault(Object potentiallyUnitializedDecimal) {
       if (potentiallyUnitializedDecimal == null) {
         return FieldInitializer.defaultDateTime.getTime();
       }
-      // one of the worst things about SOQL is that values retrieved have the millisecond values truncated
+      // one of the worst things about SOQL is that Datetimes retrieved have the millisecond values truncated
       Datetime datetimeWithMs = potentiallyUnitializedDecimal instanceof Decimal
         ? Datetime.newInstance(((Decimal) potentiallyUnitializedDecimal).longValue())
         : ((Datetime) potentiallyUnitializedDecimal);
@@ -1412,12 +1408,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         .getTime();
     }
 
-    protected virtual override Object calculateNewAggregateValue(
-      List<String> excludedItems,
-      Op operation,
-      SObjectField operationField,
-      SObjectType sObjectType
-    ) {
+    protected virtual override Object calculateNewAggregateValue(Set<Id> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
       Object aggregate = super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType);
       // for min, the default is the maximum possible Long value so that any in-memory calcItem has the chance to override
       // unlike numbers, though, the max is not the minimum possible value - zero represents the first day of UTC time ever
@@ -1437,12 +1428,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
 
     // min/max is allowed for Datetimes but not all Date fields. Go figure!
-    protected virtual override Object calculateNewAggregateValue(
-      List<String> excludedItems,
-      Op operation,
-      SObjectField operationField,
-      SObjectType sObjectType
-    ) {
+    protected virtual override Object calculateNewAggregateValue(Set<Id> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
       try {
         return super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType);
       } catch (Exception ex) {
@@ -1489,7 +1475,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     public override Object getReturnValue() {
       // we shouldn't encourage negative counts. it's totally possible as a rollup is implemented and updates happen before
       // inserts or deletes, but it doesn't really make sense in the context of tracking
-      Integer potentialReturnVal = Integer.valueOf(this.returnVal);
+      Integer potentialReturnVal = Integer.valueOf((Decimal) super.getReturnValue());
       return potentialReturnVal - this.existingValue < 0 ? 0 : potentialReturnVal;
     }
 
@@ -1561,12 +1547,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
             newVal >= stringVal)
           ) {
             this.shouldShortCircuit = true;
-            Object potentialReturnValue = this.calculateNewAggregateValue(
-              new List<Id>(oldCalcItems.keySet()),
-              operation,
-              operationField,
-              calcItem.getSObjectType()
-            );
+            Object potentialReturnValue = this.calculateNewAggregateValue(oldCalcItems.keySet(), operation, operationField, calcItem.getSObjectType());
             stringVal = potentialReturnValue == null ? '' : (String) potentialReturnValue;
           } else if (operation == Op.UPDATE_MAX && newVal > stringVal) {
             stringVal = newVal;
@@ -1589,7 +1570,6 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       SObjectType sObjectType = calcItems[0].getSobjectType();
       Set<String> objIds = new Map<String, SObject>(calcItems).keySet();
       Integer countOfPreExistingItems = Database.countQuery(getCountQueryString(sObjectType, '!='));
-      Decimal oldSum = (Decimal) Database.query('SELECT SUM(' + operationField + ') sum1 FROM ' + sObjectType + ' WHERE Id != :objIds')[0].get('sum1');
 
       List<SObject> applicableCalcItems = operationType == Op.DELETE_AVERAGE ? new List<SObject>() : calcItems;
       Decimal newSum = 0;
@@ -1597,7 +1577,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         newSum += (Decimal) calcItem.get(operationField);
       }
 
-      average = (oldSum + newSum) / (countOfPreExistingItems + applicableCalcItems.size());
+      average = ((average * countOfPreExistingItems) + newSum) / (countOfPreExistingItems + applicableCalcItems.size());
       return average;
     }
   }
@@ -1611,6 +1591,11 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       this.query = query;
       this.rollupMetadataIds = rollupMetadataIds;
       this.eval = eval;
+      try {
+        Database.query(this.query);
+      } catch (Exception ex) {
+        throw new QueryException('There\'s a problem with your query: ' + ex.getMessage() + '\n' + ex.getStackTraceString());
+      }
     }
 
     public void execute(SchedulableContext sc) {
