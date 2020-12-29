@@ -866,8 +866,10 @@ private class RollupTests {
   @isTest
   static void shouldAverageOnUpdate() {
     Account acc = [SELECT Id FROM Account];
+    acc.AnnualRevenue = 100;
+    update acc;
 
-    Opportunity testOpp = new Opportunity(Amount = 100, Name = 'Pre-existing', StageName = 'random', CloseDate = System.today(), AccountId = acc.Id);
+    Opportunity testOpp = new Opportunity(Amount = acc.AnnualRevenue, Name = 'Pre-existing', StageName = 'random', CloseDate = System.today(), AccountId = acc.Id);
     insert testOpp;
 
     List<Opportunity> opps = new List<Opportunity>{
@@ -897,8 +899,16 @@ private class RollupTests {
   @isTest
   static void shouldAverageOnDelete() {
     Account acc = [SELECT Id FROM Account];
+    acc.AnnualRevenue = 100;
+    update acc;
 
-    Opportunity testOpp = new Opportunity(Amount = 100, Name = 'Pre-existing', StageName = 'random', CloseDate = System.today(), AccountId = acc.Id);
+    Opportunity testOpp = new Opportunity(
+      Amount = acc.AnnualRevenue,
+      Name = 'Pre-existing',
+      StageName = 'random',
+      CloseDate = System.today(),
+      AccountId = acc.Id
+    );
     insert testOpp;
 
     List<Opportunity> opps = new List<Opportunity>{

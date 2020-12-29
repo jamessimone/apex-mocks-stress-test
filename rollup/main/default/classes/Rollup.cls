@@ -1,5 +1,8 @@
 public without sharing virtual class Rollup implements Database.Batchable<SObject> {
-  /** Test override / bookkeeping section. Normally I would do this through dependency injection, but this keeps things much simpler */
+  /**
+   * Test override / bookkeeping section. Normally I would do this through dependency injection,
+   * but this keeps things much simpler
+   */
   @testVisible
   private static Boolean shouldRun;
   @testVisible
@@ -41,9 +44,11 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   private List<SObject> lookupItems;
 
   /**
-   * receiving an interface/subclass from a property get/set (from the book "The Art Of Unit Testing") is an old technique; useful in limited contexts to get
-   * around the classic approach to dependency injection (such as in this case, when constructor-based DI isn't possible). It's more palatable in Apex than
-   * in many other languages, as a matter of fact - this is because the @testVisible annotation enforces for us the override only being possible while testing
+   * receiving an interface/subclass from a property get/set (from the book "The Art Of Unit Testing") is an old technique;
+   * useful in limited contexts to get around the classic approach to dependency injection
+   * (such as in this case, when constructor-based DI isn't possible).
+   * It's more palatable in Apex than in many other languages, as a matter of fact -
+   * this is because the @testVisible annotation enforces for us the override only being possible while testing
    */
   @testVisible
   private static DMLHelper DML {
@@ -113,7 +118,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
 
   private Rollup(RollupInvocationPoint invokePoint) {
     this.isBatched = true;
-    // a batch only becomes valid if other Calculators are added to it
+    // a batch only becomes valid if other Rollups are added to it
     this.isNoOp = true;
     this.invokePoint = invokePoint;
   }
@@ -193,7 +198,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
 
   public void runCalc() {
     RollupLimit__mdt orgDefaults = this.getSingleLimitOrDefault('DeveloperName', LIMIT_ORG_DEFAULTS, defaultRollupLimit);
-    // side effect in the below method - rollups can be removed from this.rollups if a RollupLimit__mdt record dictates that should be done
+    // side effect in the below method - rollups can be removed from this.rollups if a limit record ShouldAbortRun__c == true
     this.ingestRollupLimitData(orgDefaults);
 
     this.isNoOp = this.rollups.isEmpty();
@@ -262,7 +267,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
      * NB: we have to call "getFieldNamesForRollups" in both the "start" and "execute" methods because
      * trying to use Database.Stateful on the top-level class ** in addition to Batchable ** results in the dreaded:
      * "System.AsyncException: Queueable cannot be implemented with other system interfaces" exception
-     * */
+     */
     this.getFieldNamesForRollups();
     String query;
     Set<String> objIds = new Set<String>();
@@ -284,8 +289,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   public void finish(Database.BatchableContext context) {
-    // simply to conform to the demands of the interface; we don't really have any further book-keeping to do once rolling up has concluded
-    // you can always customize this as needed
+    // simply to conform to the demands of the interface; we don't really have any further book-keeping to do once
+    // rolling up has concluded - you can always customize this as needed
   }
 
   private class RollupAsyncProcessor extends Rollup implements System.Queueable {
@@ -468,9 +473,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     return flowOutputReturns;
   }
 
-  /**
-   * Static public methods and helper methods
-   */
+  /** Static public methods and helper methods */
 
   public static Id schedule(String jobName, String cronExp, String query, List<Id> rollupMetadataIds, Evaluator eval) {
     RollupSchedulable scheduledRollup = new RollupSchedulable(query, rollupMetadataIds, eval);
@@ -686,8 +689,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     Evaluator eval
   ) {
     Rollup__mdt rollupMetadata = new Rollup__mdt(
-      // operationFieldOnCalcItem can be nullable because COUNT_DISTINCT doesn't require it
-      RollupFieldOnCalcItem__c = operationFieldOnCalcItem != null ? operationFieldOnCalcItem.getDescribe().getName() : '',
+      RollupFieldOnCalcItem__c = operationFieldOnCalcItem.getDescribe().getName(),
       LookupObject__c = String.valueOf(lookupSObjectType),
       LookupFieldOnCalcItem__c = lookupFieldOnCalcItem.getDescribe().getName(),
       LookupFieldOnLookupObject__c = lookupFieldOnOperationObject.getDescribe().getName(),
@@ -725,7 +727,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         oldCalcItems = getOldTriggerRecordsMap();
       }
       when AFTER_INSERT {
-        // for AFTER_INSERT, the base operation name will always be used
+        /** for AFTER_INSERT, the base operation name will always be used */
         rollupContext = '';
       }
       when else {
@@ -742,7 +744,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       : getRollup(rollupMetadata, sObjectType, calcItems, oldCalcItems, eval, RollupInvocationPoint.FROM_TRIGGER);
   }
 
-  // end public-facing section, begin private static helpers
+  /** end public-facing section, begin private static helpers */
 
   private static String getCountQueryString(SObjectType sObjectType, String equalityOperatorForIds) {
     return 'SELECT Count() FROM ' + sObjectType + ' WHERE Id ' + equalityOperatorForIds + ' :objIds';
@@ -806,9 +808,10 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
 
     /**
-     * We have rollup operations to perform. That's great! BUT Field Definition CMDT records are stored like such: `Account.NumberOfEmployees`
-     * Frustratingly, the generic "put" operation for SObjects (necessary later) doesn't support these "full length" field names
-     * (nor can you retrieve them by default from the "fieldNameToField" map below). Let's pare them down and get ready to rollup!
+     * We have rollup operations to perform. That's great!
+     * BUT Field Definition CMDT records are stored like such: `Account.NumberOfEmployees`
+     * The generic "put" operation for SObjects (necessary later) doesn't support these "full length" field names
+     * Let's pare them down and get ready to rollup!
      */
     Rollup batchRollup = new RollupAsyncProcessor(rollupInvokePoint);
     DescribeSObjectResult describeForSObject = sObjectType.getDescribe();
@@ -984,6 +987,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   protected String getQueryString(SObjectType sObjectType, Set<String> uniqueQueryFieldNames, SObjectField lookupFieldOnLookupObject) {
+    // again noting the coupling for consumers of this method
+    // "objIds" is required to be present in the scope where the query is run
     return 'SELECT ' +
       String.join(new List<String>(uniqueQueryFieldNames), ',') +
       '\nFROM ' +
@@ -1045,6 +1050,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   private RollupLimit__mdt getSingleLimitOrDefault(String whereField, String whereValue, RollupLimit__mdt testOverrideData) {
     // ugly, but OR statements on custom metadata queries results in:
     // System.QueryException: MALFORMED QUERY: Disjunctions not supported
+    // which is ridiculous because they run fine in the Salesforce Developer Console!
     if (testOverrideData != null) {
       return testOverrideData;
     }
@@ -1164,7 +1170,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     public final Long minimumLongValue = this.maximumLongValue * -1;
     private Object getDefaultValue(SObjectField field) {
       // not surprisingly, "getDefaultValue" on the DescribeFieldResult returns null for fields without default values
-      // this is a shame - all types *should* have default values. Instead, we have the privilege of getting to initialize these ourselves
+      // this is a shame - all types *should* have default values. Instead, we have the privilege of getting to initialize them
       Schema.DisplayType fieldType = field.getDescribe().getType();
       Object initializedDefault;
       switch on fieldType {
@@ -1308,7 +1314,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       if (this.shouldShortCircuit) {
         switch on operation {
           when UPDATE_MAX {
-            // re-maxing by way of query has occurred, but is it **correct**? If one of the other updated calcItems is numerically superior, assign the new max
+            // re-maxing by way of query has occurred, but is it **correct**?
+            // if one of the other updated calcItems is numerically superior, assign the new max
             Decimal newVal = this.getNumericValue(calcItem, operationField);
             if (newVal > returnVal) {
               this.returnVal = newVal;
@@ -1418,7 +1425,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private class DateRollupCalculator extends DatetimeRollupCalculator {
-    // for Date, it's not necessary to override the "getDecimalOrDefault" method in DatetimeRollupCalculator because the conversion only happens in "getReturnValue"
+    // for Date, it's not necessary to override the "getDecimalOrDefault" method in DatetimeRollupCalculator
+    // because the conversion only happens in "getReturnValue"
     public DateRollupCalculator(Object priorVal, SObjectField operationField) {
       super(Datetime.newInstanceGmt((Date) priorVal, Time.newInstance(0, 0, 0, 0)), operationField);
     }
@@ -1567,6 +1575,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         return average;
       }
 
+      // the List isn't strongly typed at this point, otherwise we could avoided this shameful statement
       SObjectType sObjectType = calcItems[0].getSobjectType();
       Set<String> objIds = new Map<String, SObject>(calcItems).keySet();
       Integer countOfPreExistingItems = Database.countQuery(getCountQueryString(sObjectType, '!='));
