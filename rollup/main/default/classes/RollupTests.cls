@@ -1365,6 +1365,76 @@ private class RollupTests {
     System.assertEquals('Completed', [SELECT Status FROM AsyncApexJob WHERE JobType = 'BatchApexWorker'].Status);
   }
 
+  /** Rollup Limit metadata tests */
+
+  @isTest
+  static void shouldAbortWhenOrgDefaultsHaveDisabledRunning() {
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 1) });
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+    Rollup.defaultRollupLimit = new RollupLimit__mdt(ShouldAbortRun__c = true);
+
+    Test.startTest();
+    Rollup.countFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(0, mock.Records.size(), 'Rollup run should have aborted');
+  }
+
+  @isTest
+  static void shouldAbortWhenSpecificRollupLimitDisablesRunning() {
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 1) });
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+    Rollup.specificRollupLimit = new RollupLimit__mdt(ShouldAbortRun__c = true);
+
+    Test.startTest();
+    Rollup.countFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(0, mock.Records.size(), 'Rollup run should have aborted');
+  }
+
+  @isTest
+  static void shouldRunAsBatchableWhenSpecificRollupIsBatchable() {
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 1) });
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+    Rollup.specificRollupLimit = new RollupLimit__mdt(ShouldRunAsBatchable__c = true);
+
+    Test.startTest();
+    Rollup.countFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Rollup run should have run');
+    System.assertEquals('Completed', [SELECT Status FROM AsyncApexJob WHERE JobType = 'BatchApexWorker'].Status);
+  }
+
+  @isTest
+  static void shouldNotRunAsBatchableWhenDefaultIsBatchableAndRecordsAreLessThanBatchableLimit() {
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 1) });
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+    Rollup.defaultRollupLimit = new RollupLimit__mdt(ShouldRunAsBatchable__c = true, MaxLookupRowsBeforeBatching__c = 1000);
+
+    Test.startTest();
+    Rollup.countFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Rollup run should have run');
+    System.assertEquals('Completed', [SELECT Status FROM AsyncApexJob WHERE JobType = 'Queueable']?.Status);
+  }
+
+  @isTest
+  static void shouldRunAsQueueableWhenSpecificLimitIsQueueableAndBatchableIsFalse() {
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Amount = 1) });
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+    Rollup.specificRollupLimit = new RollupLimit__mdt(ShouldRunAsBatchable__c = false, ShouldRunAsQueueable__c = true);
+
+    Test.startTest();
+    Rollup.countFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Rollup run should have run');
+    System.assertEquals('Completed', [SELECT Status FROM AsyncApexJob WHERE JobType = 'Queueable']?.Status);
+  }
+
   //** Helpers */
 
   private static DMLMock getMock(List<SObject> records) {
