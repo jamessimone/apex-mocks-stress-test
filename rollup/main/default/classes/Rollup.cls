@@ -86,6 +86,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     UPDATE_SUM,
     DELETE_SUM,
     COUNT_DISTINCT,
+    UPDATE_COUNT_DISTINCT,
     DELETE_COUNT_DISTINCT,
     COUNT,
     UPDATE_COUNT,
@@ -356,10 +357,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     @InvocableVariable(label='Rollup Context' description='INSERT, UPDATE, or DELETE' required=true)
     public String rollupContext;
 
-    @InvocableVariable(
-      label='Calc Item Rollup Field'
-      description='The API Name of the field on each of the records passed in to consider. Not used for COUNT_DISTINCT operations'
-    )
+    @InvocableVariable(label='Calc Item Rollup Field' description='The API Name of the field on each of the records passed in to consider.' required=true)
     public String rollupFieldOnCalcItem;
 
     @InvocableVariable(
@@ -530,15 +528,24 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   public static Rollup countDistinctFromTrigger(
+    SObjectField countDistinctFieldOnCalcItem,
     SObjectField lookupFieldOnCalcItem,
     SObjectField lookupFieldOnOperationObject,
     SObjectField countDistinctFieldOnOperationObject,
     SObjectType lookupSobjectType
   ) {
-    return countDistinctFromTrigger(lookupFieldOnCalcItem, lookupFieldOnOperationObject, countDistinctFieldOnOperationObject, lookupSobjectType, null);
+    return countDistinctFromTrigger(
+      countDistinctFieldOnCalcItem,
+      lookupFieldOnCalcItem,
+      lookupFieldOnOperationObject,
+      countDistinctFieldOnOperationObject,
+      lookupSobjectType,
+      null
+    );
   }
 
   public static Rollup countDistinctFromTrigger(
+    SObjectField countDistinctFieldOnCalcItem,
     SObjectField lookupFieldOnCalcItem,
     SObjectField lookupFieldOnOperationObject,
     SObjectField countDistinctFieldOnOperationObject,
@@ -546,7 +553,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     Evaluator eval
   ) {
     return operateFromTrigger(
-      null,
+      countDistinctFieldOnCalcItem,
       lookupFieldOnCalcItem,
       lookupFieldOnOperationObject,
       countDistinctFieldOnOperationObject,
@@ -1187,8 +1194,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   private abstract class RollupCalculator {
     protected Boolean shouldShortCircuit = false;
     protected Object returnVal;
-    public RollupCalculator(Object returnVal, SObjectField operationField) {
-      this.returnVal = returnVal == null ? FieldInitializer.getDefaultValue(operationField) : returnVal;
+    public RollupCalculator(Object priorVal, SObjectField operationField) {
+      this.returnVal = priorVal == null ? FieldInitializer.getDefaultValue(operationField) : priorVal;
     }
     public virtual Object getReturnValue() {
       return this.returnVal;
@@ -1205,21 +1212,66 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private class CountDistinctRollupCalculator extends RollupCalculator {
-    public CountDistinctRollupCalculator(Object returnValue, SObjectField operationField) {
-      super(returnValue, operationField);
+    private final Set<Object> distinctValues;
+    public CountDistinctRollupCalculator(Object priorVal, SObjectField operationField) {
+      super(priorVal, operationField);
+      this.distinctValues = new Set<Object>();
+      if (this.returnVal != FieldInitializer.getDefaultValue(operationfield)) {
+        this.distinctValues.add(this.returnVal);
+      }
     }
 
     public override void performRollup(Op operation, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
       Integer returnInt = (Integer) this.returnVal;
-      switch on operation {
-        when COUNT_DISTINCT {
-          returnInt++;
+      if (this.shouldShortCircuit) {
+        Object currentVal = calcItem.get(operationField);
+        if (currentVal != null) {
+          this.distinctValues.add(currentVal);
         }
-        when DELETE_COUNT_DISTINCT {
-          returnInt--;
+        return;
+      }
+
+      switch on operation {
+        when COUNT_DISTINCT, DELETE_COUNT_DISTINCT {
+          if (operation != Op.DELETE_COUNT_DISTINCT && calcItem.get(operationField) != null) {
+            this.distinctValues.add(calcItem.get(operationField));
+          }
+          this.shouldShortCircuit = true;
+          this.calculateNewAggregateValue(new List<String>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
+        }
+        when UPDATE_COUNT_DISTINCT {
+          Object currentVal = calcItem.get(operationField);
+          Object priorCalcVal = oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id).get(operationField) : currentVal;
+          if (currentVal != priorCalcVal) {
+            this.distinctValues.add(currentVal);
+            this.shouldShortCircuit = true;
+            this.calculateNewAggregateValue(new List<Id>(oldCalcItems.keySet()), operation, operationField, calcItem.getSObjectType());
+          }
         }
       }
-      this.returnVal = returnInt;
+      this.returnVal = this.distinctValues.size();
+    }
+
+    protected override Object calculateNewAggregateValue(List<String> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
+      Boolean isGroupable = operationField.getDescribe().isGroupable();
+      String query =
+        'SELECT ' +
+        operationField +
+        (isGroupable ? ', COUNT(Id)' : '') +
+        ' FROM ' +
+        sObjectType +
+        ' WHERE Id != :excludedItems AND ' +
+        operationField +
+        ' != null' +
+        // not every field supports grouping for counts. unlucky.
+        (isGroupable ? (' GROUP BY ' + operationField) : '');
+      List<SObject> results = Database.query(query);
+      for (SObject res : results) {
+        // have to use the String representation of the operationField to avoid:
+        // System.SObjectException: SObject.FieldName does not belong to SObject type AggregateResult
+        this.distinctValues.add(res.get(operationField.getDescribe().getName()));
+      }
+      return null;
     }
   }
 
@@ -1368,6 +1420,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     ) {
       Object aggregate = super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType);
       // for min, the default is the maximum possible Long value so that any in-memory calcItem has the chance to override
+      // unlike numbers, though, the max is not the minimum possible value - zero represents the first day of UTC time ever
       Object defaultVal = operation.name().contains(Op.MIN.name()) ? FieldInitializer.maximumLongValue : 0;
       return aggregate == null ? defaultVal : ((Datetime) super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType)).getTime();
     }
@@ -1426,27 +1479,29 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private class CountRollupCalculator extends DecimalRollupCalculator {
+    private final Integer existingValue;
     public CountRollupCalculator(Object priorVal, SObjectField operationField) {
       super(priorVal, operationField);
+      // cache existing value to ensure we don't dip below 0 in "getReturnValue"
+      this.existingValue = Integer.valueOf(this.returnVal);
     }
 
     public override Object getReturnValue() {
-      return Integer.valueOf(this.returnVal);
+      // we shouldn't encourage negative counts. it's totally possible as a rollup is implemented and updates happen before
+      // inserts or deletes, but it doesn't really make sense in the context of tracking
+      Integer potentialReturnVal = Integer.valueOf(this.returnVal);
+      return potentialReturnVal - this.existingValue < 0 ? 0 : potentialReturnVal;
     }
 
     protected override Decimal getNumericValue(SObject calcItem, SObjectField operationField) {
-      Decimal potentialReturnValue = super.getNumericValue(calcItem, operationField);
-      return this.getCountValue(potentialReturnValue);
+      return calcItem.get(operationField) != null ? 1 : 0;
     }
 
     protected override Decimal getNumericChangedValue(SObject calcItem, SObjectField operationField, Map<Id, SObject> oldCalcItems) {
-      Decimal potentialReturnValue = this.getNumericValue(calcItem, operationField);
+      Object newVal = calcItem.get(operationField);
+      Object priorCalcVal = oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id).get(operationField) : newVal;
       // for updates, we have to decrement the count if the value has been cleared out
-      return this.getCountValue(potentialReturnValue) == 0 ? -1 : 0;
-    }
-
-    private Decimal getCountValue(Decimal potentialReturnValue) {
-      return Math.abs(potentialReturnValue) > 0 ? 1 : potentialReturnValue;
+      return newVal == null && priorCalcVal != null ? -1 : 0;
     }
   }
 

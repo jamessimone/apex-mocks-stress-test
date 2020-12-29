@@ -80,30 +80,57 @@ private class RollupTests {
 
   @isTest
   static void shouldCountDistinctFromTriggerOnInsert() {
-    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity() });
+    Account acc = [SELECT Id FROM Account];
+    insert new Opportunity(Name = 'Test Count Distinct Insert', StageName = 'something', CloseDate = System.today(), AccountId = acc.Id);
+
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity(Name = 'Test Count Distinct Insert Two') });
     Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
 
     Test.startTest();
-    Rollup.countDistinctFromTrigger(Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Rollup.countDistinctFromTrigger(Opportunity.Name, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
     Test.stopTest();
 
     System.assertEquals(1, mock.Records.size(), 'Records should have been populated COUNT_DISTINCT AFTER_INSERT');
     Account updatedAcc = (Account) mock.Records[0];
-    System.assertEquals(1, updatedAcc.AnnualRevenue, 'COUNT_DISTINCT AFTER_INSERT should simply add');
+    System.assertEquals(2, updatedAcc.AnnualRevenue, 'COUNT_DISTINCT AFTER_INSERT should simply add unique values');
+  }
+
+  @isTest
+  static void shouldCountDistinctFromTriggerOnUpdate() {
+    Account acc = [SELECT Id FROM Account];
+    insert new Opportunity(Name = 'Test Count Distinct Insert', StageName = 'something', CloseDate = System.today(), AccountId = acc.Id);
+
+    Opportunity opp = new Opportunity(Name = 'Test Count Distinct Insert', Id = TestingUtils.generateId(Opportunity.SObjectType));
+    DMLMock mock = getMock(new List<Opportunity>{ opp });
+    Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
+    // the important part here is that the old value WAS distinct; the new one isn't
+    Rollup.oldRecordsMap = new Map<Id, Opportunity>{ opp.Id => new Opportunity(Name = 'something different', Id = opp.Id) };
+
+    Test.startTest();
+    Rollup.countDistinctFromTrigger(Opportunity.Name, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated COUNT_DISTINCT AFTER_UPDATE');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(1, updatedAcc.AnnualRevenue, 'COUNT_DISTINCT AFTER_UPDATE should ensure distinct values');
   }
 
   @isTest
   static void shouldCountDistinctFromTriggerOnDelete() {
+    Account acc = [SELECT Id, AnnualRevenue FROM Account];
+    acc.AnnualRevenue = 1;
+    update acc; // we want to ensure that the AnnualRevenue is reset because there are no other matching values
+
     DMLMock mock = getMock(new List<Opportunity>{ new Opportunity() });
     Rollup.triggerContext = TriggerOperation.BEFORE_DELETE;
 
     Test.startTest();
-    Rollup.countDistinctFromTrigger(Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Rollup.countDistinctFromTrigger(Opportunity.Name, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
     Test.stopTest();
 
     System.assertEquals(1, mock.Records.size(), 'Records should have been populated COUNT_DISTINCT BEFORE_DELETE');
     Account updatedAcc = (Account) mock.Records[0];
-    System.assertEquals(-1, updatedAcc.AnnualRevenue, 'COUNT_DISTINCT BEFORE_DELETE should simply decrement');
+    System.assertEquals(0, updatedAcc.AnnualRevenue, 'COUNT_DISTINCT BEFORE_DELETE should simply decrement');
   }
 
   @isTest
@@ -121,7 +148,7 @@ private class RollupTests {
   }
 
   @isTest
-  static void shouldDecrementCountFromTriggerAfterUpdateIfValueIsRemove() {
+  static void shouldDecrementCountFromTriggerAfterUpdateIfValueIsRemoved() {
     Account acc = [SELECT Id, AnnualRevenue FROM Account];
     acc.AnnualRevenue = 1;
     update acc;
@@ -156,6 +183,18 @@ private class RollupTests {
     Test.stopTest();
 
     System.assertEquals(0, mock.Records.size(), 'Records should not have been populated COUNT AFTER_UPDATE');
+  }
+
+  @isTest
+  static void shouldNotCountNullValues() {
+    DMLMock mock = getMock(new List<Opportunity>{ new Opportunity() });
+    Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
+
+    Test.startTest();
+    Rollup.countFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    System.assertEquals(0, mock.Records.size(), 'Records should not have been populated when empty COUNT AFTER_INSERT');
   }
 
   @isTest
@@ -195,6 +234,7 @@ private class RollupTests {
         RollupType__c = 'COUNT'
       ),
       new Rollup__mdt(
+        RollupFieldOnCalcItem__c = 'Amount',
         LookupObject__c = 'Account',
         LookupFieldOnCalcItem__c = 'AccountId',
         LookupFieldOnLookupObject__c = 'Id',
@@ -221,7 +261,7 @@ private class RollupTests {
 
     Test.startTest();
     Rollup.batch(
-      Rollup.countDistinctFromTrigger(Opportunity.AccountId, Account.Id, Account.NumberOfEmployees, Account.SObjectType),
+      Rollup.countDistinctFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.NumberOfEmployees, Account.SObjectType),
       Rollup.sumFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType)
     );
     Test.stopTest();
@@ -243,7 +283,7 @@ private class RollupTests {
 
     Test.startTest();
     Rollup.batch(
-      Rollup.countDistinctFromTrigger(Opportunity.AccountId, Account.Id, Account.NumberOfEmployees, Account.SObjectType),
+      Rollup.countDistinctFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.NumberOfEmployees, Account.SObjectType),
       Rollup.sumFromTrigger(Opportunity.Amount, Opportunity.AccountId, Account.Id, Account.AnnualRevenue, Account.SObjectType),
       Rollup.concatFromTrigger(Opportunity.Name, Opportunity.AccountId, Account.Id, Account.AccountNumber, Account.SObjectType)
     );
