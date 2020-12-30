@@ -16,8 +16,6 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   @testVisible
   private static List<Rollup__mdt> rollupMetadata;
   @testVisible
-  private static List<SObject> queryRecords;
-  @testVisible
   private static RollupLimit__mdt defaultRollupLimit;
   @testVisible
   private static RollupLimit__mdt specificRollupLimit;
@@ -332,7 +330,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       }
       // non-obvious coupling between "objIds" and the computed "queryString", which uses dynamic variable binding
       String queryString = this.getQueryString(rollup.lookupObj, uniqueQueryFieldNames, rollup.lookupFieldOnLookupObject);
-      List<SObject> lookupItems = queryRecords != null ? queryRecords : Database.query(queryString);
+      List<SObject> lookupItems = Database.query(queryString);
       this.initializeRollupFieldDefaults(lookupItems, rollup);
       return lookupItems;
     }
@@ -580,7 +578,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     SObjectField concatFieldOnCalcItem,
     SObjectField lookupFieldOnCalcItem,
     SObjectField lookupFieldOnOperationObject,
-    SObjectField sumFieldOnOpOject,
+    SObjectField concatFieldOnOperationObject,
     SObjectType lookupSobjectType,
     Evaluator eval
   ) {
@@ -588,7 +586,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       concatFieldOnCalcItem,
       lookupFieldOnCalcItem,
       lookupFieldOnOperationObject,
-      sumFieldOnOpOject,
+      concatFieldOnOperationObject,
       lookupSobjectType,
       Op.CONCAT,
       eval
@@ -620,42 +618,50 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     SObjectField maxFieldOnCalcItem,
     SObjectField lookupFieldOnCalcItem,
     SObjectField lookupFieldOnOperationObject,
-    SObjectField countFieldOnOperationObject,
+    SObjectField maxFieldOnOperationObject,
     SObjectType lookupSobjectType
   ) {
-    return maxFromTrigger(maxFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOperationObject, countFieldOnOperationObject, lookupSobjectType, null);
+    return maxFromTrigger(maxFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOperationObject, maxFieldOnOperationObject, lookupSobjectType, null);
   }
 
   public static Rollup maxFromTrigger(
     SObjectField maxFieldOnCalcItem,
     SObjectField lookupFieldOnCalcItem,
     SObjectField lookupFieldOnOperationObject,
-    SObjectField sumFieldOnOpOject,
+    SObjectField maxFieldOnOperationObject,
     SObjectType lookupSobjectType,
     Evaluator eval
   ) {
-    return operateFromTrigger(maxFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOperationObject, sumFieldOnOpOject, lookupSobjectType, Op.MAX, eval);
+    return operateFromTrigger(
+      maxFieldOnCalcItem,
+      lookupFieldOnCalcItem,
+      lookupFieldOnOperationObject,
+      maxFieldOnOperationObject,
+      lookupSobjectType,
+      Op.MAX,
+      eval
+    );
   }
 
   public static Rollup minFromTrigger(
-    SObjectField maxFieldOnCalcItem,
+    SObjectField minFieldOnCalcItem,
     SObjectField lookupFieldOnCalcItem,
     SObjectField lookupFieldOnOperationObject,
-    SObjectField countFieldOnOperationObject,
+    SObjectField minFieldOnOperationObject,
     SObjectType lookupSobjectType
   ) {
-    return minFromTrigger(maxFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOperationObject, countFieldOnOperationObject, lookupSobjectType, null);
+    return minFromTrigger(minFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOperationObject, minFieldOnOperationObject, lookupSobjectType, null);
   }
 
   public static Rollup minFromTrigger(
-    SObjectField maxFieldOnCalcItem,
+    SObjectField minFieldOnCalcItem,
     SObjectField lookupFieldOnCalcItem,
     SObjectField lookupFieldOnOperationObject,
-    SObjectField sumFieldOnOpOject,
+    SObjectField minFieldOnOpOject,
     SObjectType lookupSobjectType,
     Evaluator eval
   ) {
-    return operateFromTrigger(maxFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOperationObject, sumFieldOnOpOject, lookupSobjectType, Op.MIN, eval);
+    return operateFromTrigger(minFieldOnCalcItem, lookupFieldOnCalcItem, lookupFieldOnOperationObject, minFieldOnOpOject, lookupSobjectType, Op.MIN, eval);
   }
 
   public static Rollup sumFromTrigger(
@@ -1014,13 +1020,12 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   private void getFieldNamesForRollups() {
     this.lookupObjectToUniqueFieldNames = new Map<SObjectType, Set<String>>();
     for (Rollup rollup : this.rollups) {
-      String fieldName = rollup.opFieldOnLookupObject.getDescribe().getName();
+      String rollupField = rollup.opFieldOnLookupObject.getDescribe().getName();
+      String lookupfield = rollup.lookupFieldOnLookupObject.getDescribe().getName();
       if (lookupObjectToUniqueFieldNames.containsKey(rollup.lookupObj)) {
-        lookupObjectToUniqueFieldNames.get(rollup.lookupObj).add(fieldName);
+        lookupObjectToUniqueFieldNames.get(rollup.lookupObj).addAll(new List<String>{ rollupField, lookupField });
       } else {
-        Set<String> fieldNames = new Set<String>();
-        fieldNames.add(fieldName);
-        lookupObjectToUniqueFieldNames.put(rollup.lookupObj, fieldNames);
+        lookupObjectToUniqueFieldNames.put(rollup.lookupObj, new Set<String>{ rollupField, lookupfield });
       }
     }
   }
@@ -1122,16 +1127,9 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private Object getRollupVal(Rollup rollup, List<SObject> calcItems, Object priorVal) {
-    if (rollup.op.name().contains('AVERAGE')) {
-      // AVERAGE gets to be all special and have its own way of doing things
-      return new AverageRollupCalculator().calculateAverage(calcItems, rollup.opFieldOnCalcItem, rollup.op, priorVal);
-    } else {
-      RollupCalculator rollupCalc = this.getRollupType(priorVal, rollup.op, rollup.opFieldOnLookupObject);
-      for (SObject calcItem : calcItems) {
-        rollupCalc.performRollup(rollup.op, priorVal, calcItem, rollup.oldCalcItems, rollup.opFieldOnCalcItem);
-      }
-      return rollupCalc.getReturnValue();
-    }
+    RollupCalculator rollupCalc = this.getRollupType(priorVal, rollup.op, rollup.opFieldOnLookupObject);
+    rollupCalc.performRollup(rollup.op, priorVal, calcItems, rollup.oldCalcItems, rollup.opFieldOnCalcItem);
+    return rollupCalc.getReturnValue();
   }
 
   private RollupCalculator getRollupType(Object priorVal, Op operationType, SObjectField operationField) {
@@ -1139,6 +1137,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       return new CountDistinctRollupCalculator(0, operationField);
     } else if (operationType.name().contains(Rollup.Op.COUNT.name())) {
       return new CountRollupCalculator(priorVal, operationField);
+    } else if (operationType.name().contains(Rollup.Op.AVERAGE.name())) {
+      return new AverageRollupCalculator(priorVal, operationField);
     } else if (priorVal instanceof Decimal) {
       return new DecimalRollupCalculator(priorVal, operationField);
     } else if (priorVal instanceof String) {
@@ -1206,10 +1206,10 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     public virtual Object getReturnValue() {
       return this.returnVal;
     }
-    public abstract void performRollup(Op op, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField);
+    public abstract void performRollup(Op op, Object priorVal, List<SObject> calcItems, Map<Id, SObject> oldCalcItems, SObjectField operationField);
 
     protected virtual Object calculateNewAggregateValue(Set<Id> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
-      String operationName = operation.name().substringAfter('_');
+      String operationName = operation.name().contains('_') ? operation.name().substringAfter('_') : operation.name();
       String alias = operationName.toLowerCase() + 'field';
       String query = 'SELECT ' + operationName + '(' + operationField + ')' + alias + ' FROM ' + sObjectType + ' WHERE Id != :excludedItems';
       List<SObject> aggregate = Database.query(query);
@@ -1227,31 +1227,33 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       }
     }
 
-    public override void performRollup(Op operation, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
+    public override void performRollup(Op operation, Object priorVal, List<SObject> calcItems, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
       Integer returnInt = (Integer) this.returnVal;
-      if (this.shouldShortCircuit) {
-        Object currentVal = calcItem.get(operationField);
-        if (currentVal != null) {
-          this.distinctValues.add(currentVal);
-        }
-        return;
-      }
-
-      switch on operation {
-        when COUNT_DISTINCT, DELETE_COUNT_DISTINCT {
-          if (operation != Op.DELETE_COUNT_DISTINCT && calcItem.get(operationField) != null) {
-            this.distinctValues.add(calcItem.get(operationField));
-          }
-          this.shouldShortCircuit = true;
-          this.calculateNewAggregateValue(new Set<Id>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
-        }
-        when UPDATE_COUNT_DISTINCT {
+      for (SObject calcItem : calcItems) {
+        if (this.shouldShortCircuit) {
           Object currentVal = calcItem.get(operationField);
-          Object priorCalcVal = oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id).get(operationField) : currentVal;
-          if (currentVal != priorCalcVal) {
+          if (currentVal != null) {
             this.distinctValues.add(currentVal);
+          }
+          continue;
+        }
+
+        switch on operation {
+          when COUNT_DISTINCT, DELETE_COUNT_DISTINCT {
+            if (operation != Op.DELETE_COUNT_DISTINCT && calcItem.get(operationField) != null) {
+              this.distinctValues.add(calcItem.get(operationField));
+            }
             this.shouldShortCircuit = true;
-            this.calculateNewAggregateValue(oldCalcItems.keySet(), operation, operationField, calcItem.getSObjectType());
+            this.calculateNewAggregateValue(new Set<Id>{ calcItem.Id }, operation, operationField, calcItem.getSObjectType());
+          }
+          when UPDATE_COUNT_DISTINCT {
+            Object currentVal = calcItem.get(operationField);
+            Object priorCalcVal = oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id).get(operationField) : currentVal;
+            if (currentVal != priorCalcVal) {
+              this.distinctValues.add(currentVal);
+              this.shouldShortCircuit = true;
+              this.calculateNewAggregateValue(oldCalcItems.keySet(), operation, operationField, calcItem.getSObjectType());
+            }
           }
         }
       }
@@ -1309,80 +1311,82 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       return this.returnVal;
     }
 
-    public override void performRollup(Op operation, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
-      Decimal returnVal = (Decimal) this.returnVal;
-      if (this.shouldShortCircuit) {
-        switch on operation {
-          when UPDATE_MAX {
-            // re-maxing by way of query has occurred, but is it **correct**?
-            // if one of the other updated calcItems is numerically superior, assign the new max
-            Decimal newVal = this.getNumericValue(calcItem, operationField);
-            if (newVal > returnVal) {
-              this.returnVal = newVal;
+    public override void performRollup(Op operation, Object priorVal, List<SObject> calcItems, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
+      Decimal returnDecimal = (Decimal) this.returnVal;
+      for (SObject calcItem : calcItems) {
+        if (this.shouldShortCircuit) {
+          switch on operation {
+            when UPDATE_MAX {
+              // re-maxing by way of query has occurred, but is it **correct**?
+              // if one of the other updated calcItems is numerically superior, assign the new max
+              Decimal newVal = this.getNumericValue(calcItem, operationField);
+              if (newVal > returnDecimal) {
+                returnDecimal = newVal;
+              }
+            }
+            when UPDATE_MIN {
+              // re-"min"-ing has occurred by way of query, but is an in-memory calcItem even less?
+              Decimal newVal = this.getNumericValue(calcItem, operationField);
+              if (newVal < returnDecimal) {
+                returnDecimal = newVal;
+              }
             }
           }
-          when UPDATE_MIN {
-            // re-"min"-ing has occurred by way of query, but is an in-memory calcItem even less?
-            Decimal newVal = this.getNumericValue(calcItem, operationField);
-            if (newVal < returnVal) {
-              this.returnVal = newVal;
-            }
-          }
+          continue;
         }
-        return;
-      }
 
-      switch on operation {
-        when SUM, COUNT {
-          returnVal += this.getNumericValue(calcItem, operationField);
-        }
-        when DELETE_SUM, DELETE_COUNT {
-          returnVal -= this.getNumericValue(calcItem, operationField);
-        }
-        when UPDATE_SUM, UPDATE_COUNT {
-          returnVal += this.getNumericChangedValue(calcItem, operationField, oldCalcItems);
-        }
-        when MAX {
-          Decimal numericValue = this.getNumericValue(calcItem, operationField);
-          if (numericValue > returnVal || returnVal == 0) {
-            returnVal = numericValue;
+        switch on operation {
+          when SUM, COUNT {
+            returnDecimal += this.getNumericValue(calcItem, operationField);
           }
-        }
-        when MIN {
-          Decimal numericValue = this.getNumericValue(calcItem, operationField);
-          if (numericValue < returnVal || returnVal == 0) {
-            returnVal = numericValue;
+          when DELETE_SUM, DELETE_COUNT {
+            returnDecimal -= this.getNumericValue(calcItem, operationField);
           }
-        }
-        when UPDATE_MAX, UPDATE_MIN, DELETE_MAX, DELETE_MIN {
-          Decimal newVal = this.getNumericValue(calcItem, operationField);
-          Decimal thisPriorVal = this.getNumericValue((oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id) : calcItem), operationField);
-          if (
-            (operation.name().contains(Op.MAX.name()) && thisPriorVal != 0 && thisPriorVal == returnVal && newVal <= thisPriorVal) ||
-            (operation.name().contains(Op.MIN.name()) &&
-            thisPriorVal != 0 &&
-            thisPriorVal == returnVal &&
-            newVal >= thisPriorVal)
-          ) {
-            this.shouldShortCircuit = true;
-            Object potentialReturnValue = (Decimal) this.calculateNewAggregateValue(
-              oldCalcItems.keySet(),
-              operation,
-              operationField,
-              calcItem.getSObjectType()
-            );
-            returnVal = this.getDecimalOrDefault(potentialReturnValue);
-            if (returnVal == 0) {
-              returnVal = operation == Op.UPDATE_MAX ? FieldInitializer.minimumLongValue : FieldInitializer.maximumLongValue;
+          when UPDATE_SUM, UPDATE_COUNT {
+            returnDecimal += this.getNumericChangedValue(calcItem, operationField, oldCalcItems);
+          }
+          when MAX {
+            Decimal numericValue = this.getNumericValue(calcItem, operationField);
+            if (numericValue > returnDecimal || returnDecimal == 0) {
+              returnDecimal = numericValue;
             }
-          } else if (operation == Op.UPDATE_MAX && newVal > returnVal) {
-            returnVal = newVal;
-          } else if (operation == Op.UPDATE_MIN && newVal < returnVal || returnVal == 0) {
-            returnVal = newVal;
+          }
+          when MIN {
+            Decimal numericValue = this.getNumericValue(calcItem, operationField);
+            if (numericValue < returnDecimal || returnDecimal == 0) {
+              returnDecimal = numericValue;
+            }
+          }
+          when UPDATE_MAX, UPDATE_MIN, DELETE_MAX, DELETE_MIN {
+            Decimal newVal = this.getNumericValue(calcItem, operationField);
+            Decimal thisPriorVal = this.getNumericValue((oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id) : calcItem), operationField);
+            if (
+              (operation.name().contains(Op.MAX.name()) && thisPriorVal != 0 && thisPriorVal == returnDecimal && newVal <= thisPriorVal) ||
+              (operation.name().contains(Op.MIN.name()) &&
+              thisPriorVal != 0 &&
+              thisPriorVal == returnDecimal &&
+              newVal >= thisPriorVal)
+            ) {
+              this.shouldShortCircuit = true;
+              Object potentialReturnValue = (Decimal) this.calculateNewAggregateValue(
+                oldCalcItems.keySet(),
+                operation,
+                operationField,
+                calcItem.getSObjectType()
+              );
+              returnDecimal = this.getDecimalOrDefault(potentialReturnValue);
+              if (returnDecimal == 0) {
+                returnDecimal = operation == Op.UPDATE_MAX ? FieldInitializer.minimumLongValue : FieldInitializer.maximumLongValue;
+              }
+            } else if (operation == Op.UPDATE_MAX && newVal > returnDecimal) {
+              returnDecimal = newVal;
+            } else if (operation == Op.UPDATE_MIN && newVal < returnDecimal || returnDecimal == 0) {
+              returnDecimal = newVal;
+            }
           }
         }
       }
-      this.returnVal = returnVal;
+      this.returnVal = returnDecimal;
     }
   }
 
@@ -1392,8 +1396,11 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
 
     public virtual override Object getReturnValue() {
-      Decimal superReturnVal = (Decimal) super.getReturnValue();
-      return Datetime.newInstance(superReturnVal.longValue());
+      Object superReturnVal = super.getReturnValue();
+      if (superReturnVal instanceof Decimal) {
+        return Datetime.newInstance(((Decimal) superReturnVal).longValue());
+      }
+      return superReturnVal;
     }
 
     protected virtual override Decimal getDecimalOrDefault(Object potentiallyUnitializedDecimal) {
@@ -1415,12 +1422,33 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         .getTime();
     }
 
+    // TODO: promote this try/catch to DecimalRollupCalculator
     protected virtual override Object calculateNewAggregateValue(Set<Id> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
-      Object aggregate = super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType);
-      // for min, the default is the maximum possible Long value so that any in-memory calcItem has the chance to override
-      // unlike numbers, though, the max is not the minimum possible value - zero represents the first day of UTC time ever
-      Object defaultVal = operation.name().contains(Op.MIN.name()) ? FieldInitializer.maximumLongValue : 0;
-      return aggregate == null ? defaultVal : ((Datetime) super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType)).getTime();
+      Object aggregate;
+      try {
+        Datetime dtAggregate = (Datetime) super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType);
+        aggregate = dtAggregate.getTime();
+      } catch (Exception ex) {
+        Decimal minOrMaxDate;
+        List<SObject> allOtherItems = Database.query('SELECT ' + operationField + ' FROM ' + sObjectType + ' WHERE Id != :excludedItems');
+        for (SObject otherItem : allOtherItems) {
+          Decimal otherItemDate = this.getDecimalOrDefault(otherItem.get(operationField));
+          if (otherItemDate != null && operation.name().contains(Op.MAX.name()) && (minOrMaxDate == null || otherItemDate > minOrMaxDate)) {
+            minOrMaxDate = otherItemDate;
+          } else if (otherItemDate != null && operation.name().contains(Op.MIN.name()) && (minOrMaxDate == null || otherItemDate < minOrMaxDate)) {
+            minOrMaxDate = otherItemDate;
+          }
+        }
+        // for min, the default is the maximum possible Long value so that any in-memory calcItem has the chance to override
+        // unlike numbers, though, the max is not the minimum possible value - zero represents the first day of UTC time ever
+        if (minOrMaxDate == null) {
+          aggregate = operation.name().contains(Op.MIN.name()) ? FieldInitializer.maximumLongValue : 0;
+        } else {
+          aggregate = minOrMaxDate;
+        }
+      }
+
+      return aggregate;
     }
   }
 
@@ -1434,25 +1462,6 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     public override Object getReturnValue() {
       return ((Datetime) super.getReturnValue()).dateGmt();
     }
-
-    // min/max is allowed for Datetimes but not all Date fields. Go figure!
-    protected override Object calculateNewAggregateValue(Set<Id> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
-      try {
-        return super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType);
-      } catch (Exception ex) {
-        Date minOrMaxDate;
-        List<SObject> allOtherItems = Database.query('SELECT ' + operationField + ' FROM ' + sObjectType + ' WHERE Id != :excludedItems');
-        for (SObject otherItem : allOtherItems) {
-          Date otherItemDate = (Date) otherItem.get(operationField);
-          if (otherItemDate != null && operation.name().contains(Op.MAX.name()) && (minOrMaxDate == null || otherItemDate > minOrMaxDate)) {
-            minOrMaxDate = otherItemDate;
-          } else if (otherItemDate != null && operation.name().contains(Op.MIN.name()) && (minOrMaxDate == null || otherItemDate < minOrMaxDate)) {
-            minOrMaxDate = otherItemDate;
-          }
-        }
-        return minOrMaxDate == null ? 0 : Datetime.newInstanceGmt(minOrMaxDate, Time.newInstance(0, 0, 0, 0)).getTime();
-      }
-    }
   }
 
   private class TimeRollupCalculator extends DatetimeRollupCalculator {
@@ -1465,10 +1474,15 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
 
     protected override Decimal getDecimalOrDefault(Object potentiallyUnitializedDecimal) {
-      return ((Datetime) (potentiallyUnitializedDecimal == null
-          ? FieldInitializer.defaultDateTime
-          : Datetime.newInstanceGmt(FieldInitializer.defaultDateTime.dateGmt(), (Time) potentiallyUnitializedDecimal)))
-        .getTime();
+      Datetime defaultDatetime;
+      if (potentiallyUnitializedDecimal instanceof Time) {
+        defaultDatetime = Datetime.newInstanceGmt(FieldInitializer.defaultDateTime.dateGmt(), (Time) potentiallyUnitializedDecimal);
+      } else if (potentiallyUnitializedDecimal instanceof Decimal) {
+        defaultDatetime = Datetime.newInstance(((Decimal) potentiallyUnitializedDecimal).longValue());
+      } else {
+        defaultDatetime = FieldInitializer.defaultDateTime;
+      }
+      return defaultDatetime.getTime();
     }
   }
 
@@ -1504,90 +1518,98 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       super(priorVal, operationField);
     }
 
-    public override void performRollup(Op operation, Object priorVal, SObject calcItem, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
+    public override void performRollup(Op operation, Object priorVal, List<SObject> calcItems, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
       String stringVal = (String) this.returnVal;
-      if (this.shouldShortCircuit) {
-        String newVal = (String) calcItem.get(operationField);
+      for (SObject calcItem : calcItems) {
+        if (this.shouldShortCircuit) {
+          String newVal = (String) calcItem.get(operationField);
+          switch on operation {
+            when UPDATE_MAX {
+              if (newVal > stringVal) {
+                stringVal = newVal;
+              }
+            }
+            when UPDATE_MIN {
+              if (newVal < stringVal || String.isBlank(stringVal)) {
+                stringVal = newVal;
+              }
+            }
+          }
+          continue;
+        }
         switch on operation {
-          when UPDATE_MAX {
-            if (newVal > stringVal) {
-              this.returnVal = newVal;
+          when CONCAT {
+            stringVal += (String) calcItem.get(operationField);
+          }
+          when UPDATE_CONCAT {
+            String newVal = (String) calcItem.get(operationField);
+            String priorString = (String) (oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id).get(operationField) : newVal);
+            stringVal = stringVal.replace(priorString, newVal);
+          }
+          when DELETE_CONCAT {
+            String existingVal = (String) calcItem.get(operationField);
+            stringVal = stringVal.replace(existingVal, '');
+          }
+          when MAX, MIN {
+            String newVal = (String) calcItem.get(operationField);
+            if (operation == Op.MAX && (newVal > stringVal || String.isBlank(stringVal))) {
+              stringVal = newVal;
+            } else if (operation == Op.MIN && (newVal < stringVal || String.isBlank(stringVal))) {
+              stringVal = newVal;
             }
           }
-          when UPDATE_MIN {
-            if (newVal < stringVal || String.isBlank(stringVal)) {
-              this.returnVal = newVal;
-            }
-          }
-        }
-        return;
-      }
-      switch on operation {
-        when CONCAT {
-          stringVal += (String) calcItem.get(operationField);
-        }
-        when UPDATE_CONCAT {
-          String newVal = (String) calcItem.get(operationField);
-          String priorString = (String) (oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id).get(operationField) : newVal);
-          stringVal = stringVal.replace(priorString, newVal);
-        }
-        when DELETE_CONCAT {
-          String existingVal = (String) calcItem.get(operationField);
-          Integer index = stringVal.indexOf(existingVal);
-          stringVal = stringVal.replace(existingVal, '');
-        }
-        when MAX, MIN {
-          String newVal = (String) calcItem.get(operationField);
-          if (operation == Op.MAX && (newVal > stringVal || String.isBlank(stringVal))) {
-            stringVal = newVal;
-          } else if (operation == Op.MIN && (newVal < stringVal || String.isBlank(stringVal))) {
-            stringVal = newVal;
-          }
-        }
-        when UPDATE_MAX, UPDATE_MIN, DELETE_MAX, DELETE_MIN {
-          String newVal = (String) calcItem.get(operationField);
-          String priorString = (String) (oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id).get(operationField) : newVal);
+          when UPDATE_MAX, UPDATE_MIN, DELETE_MAX, DELETE_MIN {
+            String newVal = (String) calcItem.get(operationField);
+            String priorString = (String) (oldCalcItems.containsKey(calcItem.Id) ? oldCalcItems.get(calcItem.Id).get(operationField) : newVal);
 
-          if (
-            (operation.name().contains(Op.MAX.name()) && priorString == stringVal && newVal <= stringVal) ||
-            (operation.name().contains(Op.MIN.name()) &&
-            priorString == stringVal &&
-            newVal >= stringVal)
-          ) {
-            this.shouldShortCircuit = true;
-            Object potentialReturnValue = this.calculateNewAggregateValue(oldCalcItems.keySet(), operation, operationField, calcItem.getSObjectType());
-            stringVal = potentialReturnValue == null ? '' : (String) potentialReturnValue;
-          } else if (operation == Op.UPDATE_MAX && newVal > stringVal) {
-            stringVal = newVal;
-          } else if (operation == Op.UPDATE_MIN && (newVal < stringVal || String.isBlank(stringVal))) {
-            stringVal = newVal;
+            if (
+              (operation.name().contains(Op.MAX.name()) && priorString == stringVal && newVal <= stringVal) ||
+              (operation.name().contains(Op.MIN.name()) &&
+              priorString == stringVal &&
+              newVal >= stringVal)
+            ) {
+              this.shouldShortCircuit = true;
+              Object potentialReturnValue = this.calculateNewAggregateValue(oldCalcItems.keySet(), operation, operationField, calcItem.getSObjectType());
+              stringVal = potentialReturnValue == null ? '' : (String) potentialReturnValue;
+              System.debug('!!!!!! ' + stringVal);
+            } else if (operation == Op.UPDATE_MAX && newVal > stringVal) {
+              System.debug('How did we get here');
+              stringVal = newVal;
+            } else if (operation == Op.UPDATE_MIN && (newVal < stringVal || String.isBlank(stringVal))) {
+              stringVal = newVal;
+            }
           }
         }
       }
+
       this.returnVal = stringVal.normalizeSpace();
     }
   }
 
-  private class AverageRollupCalculator {
-    public Decimal calculateAverage(List<SObject> calcItems, SObjectField operationField, Op operationType, Object priorVal) {
-      Decimal average = (Decimal) priorVal;
+  private class AverageRollupCalculator extends RollupCalculator {
+    public AverageRollupCalculator(Object priorVal, SObjectField operationField) {
+      super(priorVal, operationField);
+    }
+    public override void performRollup(Op operation, Object priorVal, List<SObject> calcItems, Map<Id, SObject> oldCalcItems, SObjectField operationField) {
+      Decimal average = (Decimal) this.returnVal;
       if (calcItems.isEmpty()) {
-        return average;
+        return;
       }
 
-      // the List isn't strongly typed at this point, otherwise we could avoided this shameful statement
+      // the List isn't strongly typed at this point, otherwise we could avoid this shameful statement
       SObjectType sObjectType = calcItems[0].getSobjectType();
-      Set<String> objIds = new Map<String, SObject>(calcItems).keySet();
+      Set<Id> objIds = new Map<Id, SObject>(calcItems).keySet();
       Integer countOfPreExistingItems = Database.countQuery(getCountQueryString(sObjectType, '!='));
+      Decimal oldSum = (Decimal) this.calculateNewAggregateValue(objIds, Op.SUM, operationField, sObjectType);
 
-      List<SObject> applicableCalcItems = operationType == Op.DELETE_AVERAGE ? new List<SObject>() : calcItems;
+      List<SObject> applicableCalcItems = operation == Op.DELETE_AVERAGE ? new List<SObject>() : calcItems;
       Decimal newSum = 0;
       for (SObject calcItem : applicableCalcItems) {
         newSum += (Decimal) calcItem.get(operationField);
       }
 
-      average = ((average * countOfPreExistingItems) + newSum) / (countOfPreExistingItems + applicableCalcItems.size());
-      return average;
+      average = (oldSum + newSum) / (countOfPreExistingItems + applicableCalcItems.size());
+      this.returnVal = average;
     }
   }
 
