@@ -1436,7 +1436,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
 
     // min/max is allowed for Datetimes but not all Date fields. Go figure!
-    protected virtual override Object calculateNewAggregateValue(Set<Id> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
+    protected override Object calculateNewAggregateValue(Set<Id> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
       try {
         return super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType);
       } catch (Exception ex) {
