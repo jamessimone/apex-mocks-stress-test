@@ -1127,31 +1127,31 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private Object getRollupVal(Rollup rollup, List<SObject> calcItems, Object priorVal) {
-    RollupCalculator rollupCalc = this.getRollupType(priorVal, rollup.op, rollup.opFieldOnLookupObject);
+    RollupCalculator rollupCalc = this.getRollupType(priorVal, rollup.op, rollup.opFieldOnLookupObject, rollup.opFieldOnCalcItem);
     rollupCalc.performRollup(rollup.op, priorVal, calcItems, rollup.oldCalcItems, rollup.opFieldOnCalcItem);
     return rollupCalc.getReturnValue();
   }
 
-  private RollupCalculator getRollupType(Object priorVal, Op operationType, SObjectField operationField) {
+  private RollupCalculator getRollupType(Object priorVal, Op operationType, SObjectField opFieldOnLookupObject, SObjectField opFieldOnCalcItem) {
     if (operationType.name().contains(Rollup.Op.COUNT_DISTINCT.name())) {
-      return new CountDistinctRollupCalculator(0, operationField);
+      return new CountDistinctRollupCalculator(0, opFieldOnLookupObject);
     } else if (operationType.name().contains(Rollup.Op.COUNT.name())) {
-      return new CountRollupCalculator(priorVal, operationField);
+      return new CountRollupCalculator(priorVal, opFieldOnLookupObject);
     } else if (operationType.name().contains(Rollup.Op.AVERAGE.name())) {
-      return new AverageRollupCalculator(priorVal, operationField);
+      return new AverageRollupCalculator(priorVal, opFieldOnLookupObject);
     } else if (priorVal instanceof Decimal) {
-      return new DecimalRollupCalculator(priorVal, operationField);
+      return new DecimalRollupCalculator(priorVal, opFieldOnLookupObject);
     } else if (priorVal instanceof String) {
-      return new StringRollupCalculator(priorVal, operationField);
+      return new PicklistRollupCalculator(priorVal, opFieldOnCalcItem);
     } else if (priorVal instanceof Date) {
       // not obvious: the order of these else if's is of supreme importance
       // Date has to go before Datetime; in the same way that all numbers test true as an instanceof Decimal
       // all Dates test true as Datetimes ...
-      return new DateRollupCalculator(priorVal, operationField);
+      return new DateRollupCalculator(priorVal, opFieldOnLookupObject);
     } else if (priorVal instanceof Time) {
-      return new TimeRollupCalculator(priorVal, operationField);
+      return new TimeRollupCalculator(priorVal, opFieldOnLookupObject);
     } else if (priorval instanceof Datetime) {
-      return new DatetimeRollupCalculator(priorVal, operationField);
+      return new DatetimeRollupCalculator(priorVal, opFieldOnLookupObject);
     } else {
       throw new IllegalArgumentException('Calculation not defined for: ' + JSON.serialize(priorVal));
     }
@@ -1164,12 +1164,14 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
   }
 
-  private class DefaultSObjectFieldInitializer {
+  private virtual class DefaultSObjectFieldInitializer {
     public final Datetime defaultDateTime = Datetime.newInstanceGmt(1970, 1, 1);
     public final Long maximumLongValue = (Math.pow(2, 63) - 1).longValue();
     public final Long minimumLongValue = this.maximumLongValue * -1;
+    public final Integer maximumIntegerValue = 2147483647;
+    public final Integer minimumIntegerValue = this.maximumIntegerValue * -1;
 
-    public Object getDefaultValue(SObjectField field) {
+    public virtual Object getDefaultValue(SObjectField field) {
       DescribeFieldResult fieldDescribe = field.getDescribe();
       if (fieldDescribe.isDefaultedOnCreate()) {
         return fieldDescribe.getDefaultValue();
@@ -1194,7 +1196,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           initializedDefault = '';
         }
         when PICKLIST, MULTIPICKLIST {
-          initializedDefault = new PicklistController(fieldDescribe).getDefaultValue();
+          initializedDefault = new PicklistController(fieldDescribe).getDefaultValue(field);
         }
         when else {
           throw new IllegalArgumentException('Field: ' + field + ' of type: ' + fieldDescribe.getType().name() + ' specified invalid for rollup operation');
@@ -1204,55 +1206,97 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
   }
 
-  private class PicklistController {
-    private final List<String> activeVals;
-    private final Map<String, Integer> picklistToRank;
+  private class PicklistController extends DefaultSObjectFieldInitializer {
+    private final Boolean isPicklist;
+    private final Boolean isMultiSelectPicklist;
+    private List<String> activeVals;
+    private Map<String, Integer> picklistToRank;
 
     public PicklistController(DescribeFieldResult fieldDescribe) {
-      this.picklistToRank = new Map<String, Integer>();
-      this.activeVals = new List<String>();
+      DisplayType fieldType = fieldDescribe.getType();
+      this.isPicklist = fieldType == DisplayType.MULTIPICKLIST || fieldType == DisplayType.PICKLIST;
+      this.isMultiSelectPicklist = fieldType == DisplayType.MULTIPICKLIST;
 
-      /**
-       * not obvious (or even documented) but getPicklistValues ALWAYS returns
-       * the picklist values in order of their appearance in the UI, which is also
-       * their alleged "rank" - for example, MAX/MIN on picklists is done by which order they appear
-       * in the list, instead of by the actual text values
-       * */
-      List<Schema.PicklistEntry> picklistVals = fieldDescribe.getPicklistValues();
-      if (picklistVals.isEmpty()) {
-        this.activeVals.add('');
-        return;
-      }
-      for (Integer index = 0; index < picklistVals.size(); index++) {
-        PicklistEntry picklist = picklistVals[index];
-        if (picklist.isDefaultValue() && this.activeVals.isEmpty()) {
-          this.activeVals.add(picklist.getValue());
-        } else if (picklist.isDefaultValue() && this.activeVals.isEmpty() == false) {
-          activeVals.set(0, picklist.getValue());
-        } else if (picklist.isActive()) {
-          this.activeVals.add(picklist.getValue());
+      if (this.isPicklist) {
+        this.picklistToRank = new Map<String, Integer>();
+        this.activeVals = new List<String>();
+
+        /**
+         * not obvious (or even documented) but getPicklistValues ALWAYS returns
+         * the picklist values in order of their appearance in the UI, which is also
+         * their alleged "rank" - for example, MAX/MIN on picklists is done by which order they appear
+         * in the list, instead of by the actual text values
+         * */
+        List<Schema.PicklistEntry> picklistVals = fieldDescribe.getPicklistValues();
+        if (picklistVals.isEmpty()) {
+          this.activeVals.add('');
+          return;
         }
-        // all inactive values will use -1 as a sentinel value
-        picklistToRank.put(picklist.getValue(), picklist.isActive() == false ? index : -1);
+        /**
+         * typically, you iterate through a list in reverse in order to remove something from it
+         * here, we don't want to iterate in reverse, we want to take the inverted index of the list so
+         * the logic in "isTrueFor" more compelling; an item at the end of the reversed list has GREATER
+         * "importance" (in rank) than an item at the start.
+         */
+
+        for (Integer index = 0; index < picklistVals.size(); index++) {
+          PicklistEntry picklist = picklistVals[index];
+          this.doBookkeepingOnPicklist(picklist);
+          // all inactive values will use -1 as a sentinel value
+          picklistToRank.put(picklist.getValue(), picklist.isActive() ? index : -1);
+        }
       }
     }
 
-    public String getDefaultValue() {
+    private void doBookkeepingOnPicklist(PicklistEntry picklist) {
+      if (picklist.isDefaultValue() && this.activeVals.isEmpty()) {
+        this.activeVals.add(picklist.getValue());
+      } else if (picklist.isDefaultValue() && this.activeVals.isEmpty() == false) {
+        this.activeVals.add(0, picklist.getValue());
+      } else if (picklist.isActive()) {
+        this.activeVals.add(picklist.getValue());
+      }
+    }
+
+    public override Object getDefaultValue(SObjectField field) {
+      if (this.isPicklist == false) {
+        return super.getDefaultValue(field);
+      }
+
       return this.activeVals[0];
     }
 
+    public Boolean isPicklist() {
+      return this.isPicklist;
+    }
+
+    public Boolean isMultiSelectPicklist() {
+      return this.isMultiSelectPicklist;
+    }
+
     public Boolean isTrueFor(String picklistVal, String comparisonValue, Op operation) {
-      Boolean isMin = operation.name().contains(Op.MIN.name());
-      if (this.picklistToRank.containsKey(picklistVal) == false) {
+      if (this.isPicklist == false) {
+        return false;
+      }
+      Boolean isMin = this.isMin(operation);
+      if (String.isNotBlank(comparisonValue) && this.picklistToRank.containsKey(picklistVal) == false) {
         return isMin ? picklistVal < comparisonValue : picklistVal > comparisonValue;
       }
-      Integer rank = this.picklistToRank.get(picklistVal);
-      Integer comparisonRank = this.picklistToRank.containsKey(comparisonValue) ? this.picklistToRank.get(comparisonValue) : this.getSentinelValue(isMin);
+      Integer rank = this.getRank(picklistVal, operation);
+      Integer comparisonRank = this.getRank(comparisonValue, operation);
       return isMin ? rank < comparisonRank : rank > comparisonRank;
     }
 
-    private Integer getSentinelValue(Boolean isMin) {
-      return (isMin ? FieldInitializer.maximumLongValue : FieldInitializer.minimumLongValue).intValue();
+    public Integer getRank(String picklistVal, Op operation) {
+      return this.picklistToRank.containsKey(picklistVal) ? this.picklistToRank.get(picklistVal) : this.getSentinelValue(operation);
+    }
+
+    private Boolean isMin(Op operation) {
+      return operation.name().contains(Op.MIN.name());
+    }
+
+    private Integer getSentinelValue(Op operation) {
+      return this.isMin(operation) ? this.maximumIntegerValue : this.minimumIntegerValue;
     }
   }
 
@@ -1589,7 +1633,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           String newVal = (String) calcItem.get(operationField);
           switch on operation {
             when UPDATE_MAX, UPDATE_MIN {
-              if (this.isTrueFor(operation, newVal, stringVal, operationField)) {
+              if (this.isTrueFor(operation, newVal, stringVal)) {
                 stringVal = newVal;
               }
             }
@@ -1611,7 +1655,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           }
           when MAX, MIN {
             String newVal = (String) calcItem.get(operationField);
-            if (this.isTrueFor(operation, newVal, stringVal, operationField)) {
+            if (this.isTrueFor(operation, newVal, stringVal)) {
               stringVal = newVal;
             }
           }
@@ -1628,7 +1672,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
               this.shouldShortCircuit = true;
               Object potentialReturnValue = this.calculateNewAggregateValue(oldCalcItems.keySet(), operation, operationField, calcItem.getSObjectType());
               stringVal = potentialReturnValue == null ? '' : (String) potentialReturnValue;
-            } else if (this.isTrueFor(operation, newVal, stringVal, operationField)) {
+            } else if (this.isTrueFor(operation, newVal, stringVal)) {
               stringVal = newVal;
             }
           }
@@ -1638,7 +1682,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       this.returnVal = stringVal.normalizeSpace();
     }
 
-    protected virtual Boolean isTrueFor(Op operation, String newVal, String priorVal, SObjectField opField) {
+    protected virtual Boolean isTrueFor(Op operation, String newVal, String priorVal) {
       if (operation.name().contains(Op.MAX.name())) {
         return newVal > priorVal || String.isBlank(priorVal);
       } else if (operation.name().contains(Op.MIN.name())) {
@@ -1649,18 +1693,28 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   private class PicklistRollupCalculator extends StringRollupCalculator {
-    private final Set<DisplayType> applicableTypes;
+    private final PicklistController picklistController;
     public PicklistRollupCalculator(Object priorVal, SObjectField operationField) {
       super(priorVal, operationField);
-      this.applicableTypes = new Set<DisplayType>{ DisplayType.MULTIPICKLIST, DisplayType.PICKLIST };
+      this.picklistController = new PicklistController(operationField.getDescribe());
     }
 
-    protected override Boolean isTrueFor(Op operation, String newVal, String priorVal, SObjectField opField) {
-      DescribeFieldResult fieldDescribe = opField.getDescribe();
-      if(this.applicableTypes.contains(fieldDescribe.getType()) == false) {
-        return super.isTrueFor(operation, newVal, priorVal, opField);
+    protected override Boolean isTrueFor(Op operation, String newVal, String priorVal) {
+      if (this.picklistController.isPicklist() == false) {
+        return super.isTrueFor(operation, newVal, priorVal);
+      } else if (this.picklistController.isMultiSelectPicklist()) {
+        // this operation isn't valid in SOQL, but at this point we wouldn't let a thing like that slow us down ...
+        Integer newValRank = 0;
+        Integer priorValRank = 0;
+        for (String pickVal : newVal.split(';')) {
+          newValRank += this.picklistController.getRank(pickVal, operation);
+        }
+        for (String priorPickVal : priorVal.split(';')) {
+          priorValRank += this.picklistController.getRank(priorPickVal, operation);
+        }
+        return operation.name().contains(Op.MIN.name()) ? newValRank < priorValRank : newValRank > priorValRank;
       }
-      return new PicklistController(fieldDescribe).isTrueFor(newVal, priorVal, operation);
+      return this.picklistController.isTrueFor(newVal, priorVal, operation);
     }
   }
 
