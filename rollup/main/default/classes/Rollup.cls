@@ -1168,12 +1168,16 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     public final Datetime defaultDateTime = Datetime.newInstanceGmt(1970, 1, 1);
     public final Long maximumLongValue = (Math.pow(2, 63) - 1).longValue();
     public final Long minimumLongValue = this.maximumLongValue * -1;
-    private Object getDefaultValue(SObjectField field) {
+
+    public Object getDefaultValue(SObjectField field) {
+      DescribeFieldResult fieldDescribe = field.getDescribe();
+      if (fieldDescribe.isDefaultedOnCreate()) {
+        return fieldDescribe.getDefaultValue();
+      }
       // not surprisingly, "getDefaultValue" on the DescribeFieldResult returns null for fields without default values
       // this is a shame - all types *should* have default values. Instead, we have the privilege of getting to initialize them
-      Schema.DisplayType fieldType = field.getDescribe().getType();
       Object initializedDefault;
-      switch on fieldType {
+      switch on fieldDescribe.getType() {
         when CURRENCY, DOUBLE, INTEGER, LONG, PERCENT {
           initializedDefault = 0;
         }
@@ -1186,14 +1190,69 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         when TIME {
           initializedDefault = this.defaultDateTime.timeGmt();
         }
-        when STRING, PICKLIST, ID, TEXTAREA, URL, PHONE, EMAIL, MULTIPICKLIST {
+        when STRING, ID, TEXTAREA, URL, PHONE, EMAIL {
           initializedDefault = '';
         }
+        when PICKLIST, MULTIPICKLIST {
+          initializedDefault = new PicklistController(fieldDescribe).getDefaultValue();
+        }
         when else {
-          throw new IllegalArgumentException('Field: ' + field + ' of type: ' + fieldType.name() + ' specified invalid for rollup operation');
+          throw new IllegalArgumentException('Field: ' + field + ' of type: ' + fieldDescribe.getType().name() + ' specified invalid for rollup operation');
         }
       }
       return initializedDefault;
+    }
+  }
+
+  private class PicklistController {
+    private final List<String> activeVals;
+    private final Map<String, Integer> picklistToRank;
+
+    public PicklistController(DescribeFieldResult fieldDescribe) {
+      this.picklistToRank = new Map<String, Integer>();
+      this.activeVals = new List<String>();
+
+      /**
+       * not obvious (or even documented) but getPicklistValues ALWAYS returns
+       * the picklist values in order of their appearance in the UI, which is also
+       * their alleged "rank" - for example, MAX/MIN on picklists is done by which order they appear
+       * in the list, instead of by the actual text values
+       * */
+      List<Schema.PicklistEntry> picklistVals = fieldDescribe.getPicklistValues();
+      if (picklistVals.isEmpty()) {
+        this.activeVals.add('');
+        return;
+      }
+      for (Integer index = 0; index < picklistVals.size(); index++) {
+        PicklistEntry picklist = picklistVals[index];
+        if (picklist.isDefaultValue() && this.activeVals.isEmpty()) {
+          this.activeVals.add(picklist.getValue());
+        } else if (picklist.isDefaultValue() && this.activeVals.isEmpty() == false) {
+          activeVals.set(0, picklist.getValue());
+        } else if (picklist.isActive()) {
+          this.activeVals.add(picklist.getValue());
+        }
+        // all inactive values will use -1 as a sentinel value
+        picklistToRank.put(picklist.getValue(), picklist.isActive() == false ? index : -1);
+      }
+    }
+
+    public String getDefaultValue() {
+      return this.activeVals[0];
+    }
+
+    public Boolean isTrueFor(String picklistVal, String comparisonValue, Op operation) {
+      Boolean isMin = operation.name().contains(Op.MIN.name());
+      if (this.picklistToRank.containsKey(picklistVal) == false) {
+        return isMin ? picklistVal < comparisonValue : picklistVal > comparisonValue;
+      }
+      Integer rank = this.picklistToRank.get(picklistVal);
+      Integer comparisonRank = this.picklistToRank.containsKey(comparisonValue) ? this.picklistToRank.get(comparisonValue) : this.getSentinelValue(isMin);
+      return isMin ? rank < comparisonRank : rank > comparisonRank;
+    }
+
+    private Integer getSentinelValue(Boolean isMin) {
+      return (isMin ? FieldInitializer.maximumLongValue : FieldInitializer.minimumLongValue).intValue();
     }
   }
 
@@ -1552,9 +1611,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           }
           when MAX, MIN {
             String newVal = (String) calcItem.get(operationField);
-            if (operation == Op.MAX && (newVal > stringVal || String.isBlank(stringVal))) {
-              stringVal = newVal;
-            } else if (operation == Op.MIN && (newVal < stringVal || String.isBlank(stringVal))) {
+            if (this.isTrueFor(operation, newVal, stringVal)) {
               stringVal = newVal;
             }
           }
@@ -1571,11 +1628,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
               this.shouldShortCircuit = true;
               Object potentialReturnValue = this.calculateNewAggregateValue(oldCalcItems.keySet(), operation, operationField, calcItem.getSObjectType());
               stringVal = potentialReturnValue == null ? '' : (String) potentialReturnValue;
-              System.debug('!!!!!! ' + stringVal);
-            } else if (operation == Op.UPDATE_MAX && newVal > stringVal) {
-              System.debug('How did we get here');
-              stringVal = newVal;
-            } else if (operation == Op.UPDATE_MIN && (newVal < stringVal || String.isBlank(stringVal))) {
+            } else if (this.isTrueFor(operation, newVal, stringVal)) {
               stringVal = newVal;
             }
           }
@@ -1583,6 +1636,15 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       }
 
       this.returnVal = stringVal.normalizeSpace();
+    }
+
+    private Boolean isTrueFor(Op operation, String newVal, String priorVal) {
+      if (operation.name().contains(Op.MAX.name())) {
+        return newVal > priorVal || String.isBlank(priorVal);
+      } else if (operation.name().contains(Op.MIN.name())) {
+        return newVal < priorVal || String.isBlank(priorVal);
+      }
+      return false;
     }
   }
 
