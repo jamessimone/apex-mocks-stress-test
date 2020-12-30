@@ -1577,7 +1577,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     }
   }
 
-  private class StringRollupCalculator extends RollupCalculator {
+  private virtual class StringRollupCalculator extends RollupCalculator {
     public StringRollupCalculator(Object priorVal, SObjectField operationField) {
       super(priorVal, operationField);
     }
@@ -1588,13 +1588,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         if (this.shouldShortCircuit) {
           String newVal = (String) calcItem.get(operationField);
           switch on operation {
-            when UPDATE_MAX {
-              if (newVal > stringVal) {
-                stringVal = newVal;
-              }
-            }
-            when UPDATE_MIN {
-              if (newVal < stringVal || String.isBlank(stringVal)) {
+            when UPDATE_MAX, UPDATE_MIN {
+              if (this.isTrueFor(operation, newVal, stringVal, operationField)) {
                 stringVal = newVal;
               }
             }
@@ -1616,7 +1611,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
           }
           when MAX, MIN {
             String newVal = (String) calcItem.get(operationField);
-            if (this.isTrueFor(operation, newVal, stringVal)) {
+            if (this.isTrueFor(operation, newVal, stringVal, operationField)) {
               stringVal = newVal;
             }
           }
@@ -1633,7 +1628,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
               this.shouldShortCircuit = true;
               Object potentialReturnValue = this.calculateNewAggregateValue(oldCalcItems.keySet(), operation, operationField, calcItem.getSObjectType());
               stringVal = potentialReturnValue == null ? '' : (String) potentialReturnValue;
-            } else if (this.isTrueFor(operation, newVal, stringVal)) {
+            } else if (this.isTrueFor(operation, newVal, stringVal, operationField)) {
               stringVal = newVal;
             }
           }
@@ -1643,13 +1638,29 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       this.returnVal = stringVal.normalizeSpace();
     }
 
-    private Boolean isTrueFor(Op operation, String newVal, String priorVal) {
+    protected virtual Boolean isTrueFor(Op operation, String newVal, String priorVal, SObjectField opField) {
       if (operation.name().contains(Op.MAX.name())) {
         return newVal > priorVal || String.isBlank(priorVal);
       } else if (operation.name().contains(Op.MIN.name())) {
         return newVal < priorVal || String.isBlank(priorVal);
       }
       return false;
+    }
+  }
+
+  private class PicklistRollupCalculator extends StringRollupCalculator {
+    private final Set<DisplayType> applicableTypes;
+    public PicklistRollupCalculator(Object priorVal, SObjectField operationField) {
+      super(priorVal, operationField);
+      this.applicableTypes = new Set<DisplayType>{ DisplayType.MULTIPICKLIST, DisplayType.PICKLIST };
+    }
+
+    protected override Boolean isTrueFor(Op operation, String newVal, String priorVal, SObjectField opField) {
+      DescribeFieldResult fieldDescribe = opField.getDescribe();
+      if(this.applicableTypes.contains(fieldDescribe.getType()) == false) {
+        return super.isTrueFor(operation, newVal, priorVal, opField);
+      }
+      return new PicklistController(fieldDescribe).isTrueFor(newVal, priorVal, operation);
     }
   }
 

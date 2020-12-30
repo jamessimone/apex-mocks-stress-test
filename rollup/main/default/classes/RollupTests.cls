@@ -821,6 +821,38 @@ private class RollupTests {
     System.assertEquals(opp.Name, updatedAcc.AccountNumber, 'MAX BEFORE_DELETE should take the maximum string');
   }
 
+  // TODO: fixme
+  @isTest
+  static void shouldMaxOnPicklistStringsInsert() {
+    List<PicklistEntry> picklistVals = Lead.LeadSource.getDescribe().getPicklistValues();
+
+    if (picklistVals.size() < 2) {
+      return; // sorry
+    }
+
+    Account acc = [SELECT Id FROM Account];
+
+    List<Lead> leads = new List<Lead>{
+      new Lead(Company = acc.Id, LeadSource = picklistVals[0].getValue(), LastName = 'Max Picklist on insert one'),
+      new Lead(Company = acc.Id, LeadSource = picklistVals[1].getValue(), LastName = 'Max Picklist on insert two')
+    };
+    insert leads; // not the best, either, but we need to be able to use SOQL below
+
+    DMLMock mock = loadMock(leads);
+    Rollup.TriggerContext = TriggerOperation.AFTER_INSERT;
+
+    Test.startTest();
+    Rollup.maxFromTrigger(Lead.LeadSource, Lead.Company, Account.Id, Account.AccountNumber, Account.SObjectType).runCalc();
+    Test.stopTest();
+
+    AggregateResult res = [SELECT Max(LeadSource) maxSource FROM Lead WHERE Id = :new Map<Id, Lead>(leads).keySet()][0];
+    String maxLeadSource = (String) res.get('maxSource');
+
+    System.assertEquals(1, mock.Records.size(), 'Records should have been populated MAX BEFORE_INSERT PICKLIST STRING');
+    Account updatedAcc = (Account) mock.Records[0];
+    System.assertEquals(maxLeadSource, updatedAcc.AccountNumber, 'MAX BEFORE_INSERT should take the maximum picklist string');
+  }
+
   @isTest
   static void shouldAverageOnInsert() {
     // average is a special case; even on insert, we have to also check for pre-existing records existing
