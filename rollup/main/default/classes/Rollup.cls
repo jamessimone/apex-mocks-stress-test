@@ -1447,6 +1447,31 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       }
       this.returnVal = returnDecimal;
     }
+
+    protected virtual override Object calculateNewAggregateValue(Set<Id> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
+      Object aggregate;
+      try {
+        aggregate = super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType);
+      } catch (Exception ex) {
+        Decimal minOrMax;
+        List<SObject> allOtherItems = Database.query('SELECT ' + operationField + ' FROM ' + sObjectType + ' WHERE Id != :excludedItems');
+        for (SObject otherItem : allOtherItems) {
+          Decimal otherItemDate = this.getDecimalOrDefault(otherItem.get(operationField));
+          if (otherItemDate != null && operation.name().contains(Op.MAX.name()) && (minOrMax == null || otherItemDate > minOrMax)) {
+            minOrMax = otherItemDate;
+          } else if (otherItemDate != null && operation.name().contains(Op.MIN.name()) && (minOrMax == null || otherItemDate < minOrMax)) {
+            minOrMax = otherItemDate;
+          }
+        }
+        if (minOrMax == null) {
+          aggregate = operation.name().contains(Op.MIN.name()) ? FieldInitializer.maximumLongValue : FieldInitializer.minimumLongValue;
+        } else {
+          aggregate = minOrMax;
+        }
+      }
+
+      return aggregate;
+    }
   }
 
   private virtual class DatetimeRollupCalculator extends DecimalRollupCalculator {
@@ -1481,30 +1506,10 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
         .getTime();
     }
 
-    // TODO: promote this try/catch to DecimalRollupCalculator
-    protected virtual override Object calculateNewAggregateValue(Set<Id> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
-      Object aggregate;
-      try {
-        Datetime dtAggregate = (Datetime) super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType);
-        aggregate = dtAggregate.getTime();
-      } catch (Exception ex) {
-        Decimal minOrMaxDate;
-        List<SObject> allOtherItems = Database.query('SELECT ' + operationField + ' FROM ' + sObjectType + ' WHERE Id != :excludedItems');
-        for (SObject otherItem : allOtherItems) {
-          Decimal otherItemDate = this.getDecimalOrDefault(otherItem.get(operationField));
-          if (otherItemDate != null && operation.name().contains(Op.MAX.name()) && (minOrMaxDate == null || otherItemDate > minOrMaxDate)) {
-            minOrMaxDate = otherItemDate;
-          } else if (otherItemDate != null && operation.name().contains(Op.MIN.name()) && (minOrMaxDate == null || otherItemDate < minOrMaxDate)) {
-            minOrMaxDate = otherItemDate;
-          }
-        }
-        // for min, the default is the maximum possible Long value so that any in-memory calcItem has the chance to override
-        // unlike numbers, though, the max is not the minimum possible value - zero represents the first day of UTC time ever
-        if (minOrMaxDate == null) {
-          aggregate = operation.name().contains(Op.MIN.name()) ? FieldInitializer.maximumLongValue : 0;
-        } else {
-          aggregate = minOrMaxDate;
-        }
+    protected override Object calculateNewAggregateValue(Set<Id> excludedItems, Op operation, SObjectField operationField, SObjectType sObjectType) {
+      Object aggregate = super.calculateNewAggregateValue(excludedItems, operation, operationField, sObjectType);
+      if (aggregate instanceof Datetime) {
+        aggregate = ((Datetime) aggregate).getTime();
       }
 
       return aggregate;
