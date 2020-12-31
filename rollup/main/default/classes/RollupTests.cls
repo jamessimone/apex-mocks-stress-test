@@ -1559,12 +1559,13 @@ private class RollupTests {
   }
 
   @isTest
-  static void shouldReturnEmptyIfFlowIsNotRunning() {
+  static void shouldNotThrowErrorEvenIfNoRollupsPerformedDuringInvocable() {
     Test.startTest();
     List<Rollup.FlowOutput> flowOutputs = Rollup.performRollup(prepareFlowTest(new List<SObject>(), 'INSERT', 'SUM'));
     Test.stopTest();
 
-    System.assertEquals(0, flowOutputs.size());
+    System.assertEquals(1, flowOutputs.size());
+    System.assertEquals(true, flowOutputs[0].isSuccess);
   }
 
   /** Batch test */

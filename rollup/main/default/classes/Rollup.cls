@@ -409,14 +409,8 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
     description='Returns a single FlowOutput record with "SUCCESS" as the message if async rollup operation is enqueued successfully, and the encountered error otherwise'
   )
   public static List<FlowOutput> performRollup(List<FlowInput> flowInputs) {
-    if (shouldRun == null) {
-      shouldRun = System.Request.getCurrent().getQuiddity() == Quiddity.INVOCABLE_ACTION;
-    }
     List<FlowOutput> flowOutputReturns = new List<FlowOutput>();
     List<Rollup__mdt> rollups = new List<Rollup__mdt>();
-    if (shouldRun == false) {
-      return flowOutputReturns;
-    }
 
     try {
       Map<Id, SObject> oldRecords = new Map<Id, SObject>();
