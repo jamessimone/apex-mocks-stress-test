@@ -49,7 +49,7 @@ private class RollupTests {
 
   @isTest
   static void shouldSumFromTriggerAfterUpdate() {
-    Opportunity opp = new Opportunity(Id = TestingUtils.generateId(Opportunity.SObjectType), Amount = 50);
+    Opportunity opp = new Opportunity(Id = generateId(Opportunity.SObjectType), Amount = 50);
     DMLMock mock = getMock(new List<Opportunity>{ opp });
     Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
 
@@ -100,7 +100,7 @@ private class RollupTests {
     Account acc = [SELECT Id FROM Account];
     insert new Opportunity(Name = 'Test Count Distinct Insert', StageName = 'something', CloseDate = System.today(), AccountId = acc.Id);
 
-    Opportunity opp = new Opportunity(Name = 'Test Count Distinct Insert', Id = TestingUtils.generateId(Opportunity.SObjectType));
+    Opportunity opp = new Opportunity(Name = 'Test Count Distinct Insert', Id = generateId(Opportunity.SObjectType));
     DMLMock mock = getMock(new List<Opportunity>{ opp });
     Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
     // the important part here is that the old value WAS distinct; the new one isn't
@@ -153,7 +153,7 @@ private class RollupTests {
     acc.AnnualRevenue = 1;
     update acc;
 
-    Opportunity opp = new Opportunity(Id = TestingUtils.generateId(Opportunity.SObjectType));
+    Opportunity opp = new Opportunity(Id = generateId(Opportunity.SObjectType));
     DMLMock mock = getMock(new List<Opportunity>{ opp });
     Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
     Rollup.oldRecordsMap = new Map<Id, Opportunity>{ opp.Id => new Opportunity(Id = opp.Id, Amount = 1) };
@@ -173,7 +173,7 @@ private class RollupTests {
     acc.AnnualRevenue = 1;
     update acc;
 
-    Opportunity opp = new Opportunity(Id = TestingUtils.generateId(Opportunity.SObjectType), Amount = 50);
+    Opportunity opp = new Opportunity(Id = generateId(Opportunity.SObjectType), Amount = 50);
     DMLMock mock = getMock(new List<Opportunity>{ opp });
     Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
     Rollup.oldRecordsMap = new Map<Id, Opportunity>{ opp.Id => new Opportunity(Id = opp.Id, Amount = 1) };
@@ -322,8 +322,8 @@ private class RollupTests {
   @isTest
   static void shouldMaxNumbersSuccessfullyAfterInsert() {
     List<Opportunity> opps = new List<Opportunity>{
-      new Opportunity(Amount = 100, Id = TestingUtils.generateId(Opportunity.SObjectType)),
-      new Opportunity(Amount = 200, Id = TestingUtils.generateId(Opportunity.SObjectType))
+      new Opportunity(Amount = 100, Id = generateId(Opportunity.SObjectType)),
+      new Opportunity(Amount = 200, Id = generateId(Opportunity.SObjectType))
     };
     DMLMock mock = getMock(opps);
     Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
@@ -340,8 +340,8 @@ private class RollupTests {
   @isTest
   static void shouldMaxNumbersSuccessfullyAfterUpdate() {
     List<Opportunity> opps = new List<Opportunity>{
-      new Opportunity(Amount = 100, Id = TestingUtils.generateId(Opportunity.SObjectType)),
-      new Opportunity(Amount = 200, Id = TestingUtils.generateId(Opportunity.SObjectType))
+      new Opportunity(Amount = 100, Id = generateId(Opportunity.SObjectType)),
+      new Opportunity(Amount = 200, Id = generateId(Opportunity.SObjectType))
     };
     DMLMock mock = getMock(opps);
     Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
@@ -430,7 +430,7 @@ private class RollupTests {
       Name = 'testOpp',
       StageName = 'something',
       CloseDate = System.today(),
-      Id = TestingUtils.generateId(Opportunity.SObjectType)
+      Id = generateId(Opportunity.SObjectType)
     );
     Opportunity secondOpp = new Opportunity(
       Amount = 175,
@@ -438,7 +438,7 @@ private class RollupTests {
       Name = 'testOppTwo',
       StageName = 'something',
       CloseDate = System.today(),
-      Id = TestingUtils.generateId(Opportunity.SObjectType)
+      Id = generateId(Opportunity.SObjectType)
     );
     List<Opportunity> originalOpps = new List<Opportunity>{ opp, secondOpp };
 
@@ -490,8 +490,8 @@ private class RollupTests {
   @isTest
   static void shouldMinNumbersSuccessfullyAfterInsert() {
     List<Opportunity> opps = new List<Opportunity>{
-      new Opportunity(Amount = 100, Id = TestingUtils.generateId(Opportunity.SObjectType)),
-      new Opportunity(Amount = 200, Id = TestingUtils.generateId(Opportunity.SObjectType))
+      new Opportunity(Amount = 100, Id = generateId(Opportunity.SObjectType)),
+      new Opportunity(Amount = 200, Id = generateId(Opportunity.SObjectType))
     };
     DMLMock mock = getMock(opps);
     Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
@@ -508,8 +508,8 @@ private class RollupTests {
   @isTest
   static void shouldMinNumbersSuccessfullyAfterUpdate() {
     List<Opportunity> opps = new List<Opportunity>{
-      new Opportunity(Amount = 100, Id = TestingUtils.generateId(Opportunity.SObjectType)),
-      new Opportunity(Amount = 200, Id = TestingUtils.generateId(Opportunity.SObjectType))
+      new Opportunity(Amount = 100, Id = generateId(Opportunity.SObjectType)),
+      new Opportunity(Amount = 200, Id = generateId(Opportunity.SObjectType))
     };
     DMLMock mock = getMock(opps);
     Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
@@ -598,7 +598,7 @@ private class RollupTests {
       Name = 'testOpp',
       StageName = 'something',
       CloseDate = System.today(),
-      Id = TestingUtils.generateId(Opportunity.SObjectType)
+      Id = generateId(Opportunity.SObjectType)
     );
     Opportunity secondOpp = new Opportunity(
       Amount = 175,
@@ -606,7 +606,7 @@ private class RollupTests {
       Name = 'testOppTwo',
       StageName = 'something',
       CloseDate = System.today(),
-      Id = TestingUtils.generateId(Opportunity.SObjectType)
+      Id = generateId(Opportunity.SObjectType)
     );
     List<Opportunity> originalOpps = new List<Opportunity>{ opp, secondOpp };
 
@@ -665,7 +665,7 @@ private class RollupTests {
     acc.AccountNumber = 'first test string';
     update acc;
 
-    Opportunity opp = new Opportunity(AccountId = acc.Id, Name = 'second test string', Id = TestingUtils.generateId(Opportunity.SObjectType));
+    Opportunity opp = new Opportunity(AccountId = acc.Id, Name = 'second test string', Id = generateId(Opportunity.SObjectType));
     Opportunity oldOpp = opp.clone(true, true);
     oldOpp.Name = acc.AccountNumber;
 
@@ -736,8 +736,8 @@ private class RollupTests {
   @isTest
   static void shouldMinOnStringsOnUpdate() {
     List<Opportunity> testOpps = new List<Opportunity>{
-      new Opportunity(Name = 'B', Id = TestingUtils.generateId(Opportunity.SObjectType)),
-      new Opportunity(Name = 'A', Id = TestingUtils.generateId(Opportunity.SObjectType))
+      new Opportunity(Name = 'B', Id = generateId(Opportunity.SObjectType)),
+      new Opportunity(Name = 'A', Id = generateId(Opportunity.SObjectType))
     };
 
     DMLMock mock = getMock(testOpps);
@@ -759,8 +759,8 @@ private class RollupTests {
   @isTest
   static void shouldMaxOnStringsOnUpdate() {
     List<Opportunity> testOpps = new List<Opportunity>{
-      new Opportunity(Name = '', Id = TestingUtils.generateId(Opportunity.SObjectType)),
-      new Opportunity(Name = 'A', Id = TestingUtils.generateId(Opportunity.SObjectType))
+      new Opportunity(Name = '', Id = generateId(Opportunity.SObjectType)),
+      new Opportunity(Name = 'A', Id = generateId(Opportunity.SObjectType))
     };
 
     DMLMock mock = getMock(testOpps);
@@ -782,7 +782,7 @@ private class RollupTests {
     acc.AccountNumber = 'A';
     update acc;
 
-    List<Opportunity> testOpps = new List<Opportunity>{ new Opportunity(Name = 'A', Id = TestingUtils.generateId(Opportunity.SObjectType)) };
+    List<Opportunity> testOpps = new List<Opportunity>{ new Opportunity(Name = 'A', Id = generateId(Opportunity.SObjectType)) };
 
     DMLMock mock = getMock(testOpps);
     Rollup.TriggerContext = TriggerOperation.BEFORE_DELETE;
@@ -806,7 +806,7 @@ private class RollupTests {
     Opportunity opp = new Opportunity(StageName = 'test max on delete', CloseDate = System.today(), Name = 'Z', AccountId = acc.Id);
     insert opp;
 
-    List<Opportunity> testOpps = new List<Opportunity>{ new Opportunity(Name = 'A', Id = TestingUtils.generateId(Opportunity.SObjectType)) };
+    List<Opportunity> testOpps = new List<Opportunity>{ new Opportunity(Name = 'A', Id = generateId(Opportunity.SObjectType)) };
 
     DMLMock mock = getMock(testOpps);
     Rollup.TriggerContext = TriggerOperation.BEFORE_DELETE;
@@ -900,8 +900,8 @@ private class RollupTests {
     insert testOpp;
 
     List<Opportunity> opps = new List<Opportunity>{
-      new Opportunity(Amount = 200000, Id = TestingUtils.generateId(Opportunity.SObjectType)),
-      new Opportunity(Amount = 200000, Id = TestingUtils.generateId(Opportunity.SObjectType))
+      new Opportunity(Amount = 200000, Id = generateId(Opportunity.SObjectType)),
+      new Opportunity(Amount = 200000, Id = generateId(Opportunity.SObjectType))
     };
     DMLMock mock = getMock(opps);
     Rollup.triggerContext = TriggerOperation.AFTER_INSERT;
@@ -935,8 +935,8 @@ private class RollupTests {
     insert testOpp;
 
     List<Opportunity> opps = new List<Opportunity>{
-      new Opportunity(Amount = 200000, Id = TestingUtils.generateId(Opportunity.SObjectType)),
-      new Opportunity(Amount = 200000, Id = TestingUtils.generateId(Opportunity.SObjectType))
+      new Opportunity(Amount = 200000, Id = generateId(Opportunity.SObjectType)),
+      new Opportunity(Amount = 200000, Id = generateId(Opportunity.SObjectType))
     };
     DMLMock mock = getMock(opps);
     Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
@@ -1053,7 +1053,7 @@ private class RollupTests {
     Task taskOne = new Task(Subject = 'Test One', ActivityDate = System.today().addDays(-50));
     insert taskOne;
 
-    Task taskTwo = new Task(Subject = 'Test Two', ActivityDate = opp.CloseDate.addDays(5), Id = TestingUtils.generateId(Task.SObjectType));
+    Task taskTwo = new Task(Subject = 'Test Two', ActivityDate = opp.CloseDate.addDays(5), Id = generateId(Task.SObjectType));
 
     DMLMock mock = getTaskMock(new List<Task>{ taskTwo });
     Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
@@ -1113,8 +1113,8 @@ private class RollupTests {
     update con;
 
     // now the "new" version of eventOne is no longer the min
-    Event eventOne = new Event(ActivityDateTime = con.ActivatedDate.addDays(50), WhatId = con.Id, Id = TestingUtils.generateId(Event.SObjectType));
-    Event eventTwo = new Event(ActivityDateTime = con.ActivatedDate.addDays(-25), WhatId = con.Id, Id = TestingUtils.generateId(Event.SObjectType));
+    Event eventOne = new Event(ActivityDateTime = con.ActivatedDate.addDays(50), WhatId = con.Id, Id = generateId(Event.SObjectType));
+    Event eventTwo = new Event(ActivityDateTime = con.ActivatedDate.addDays(-25), WhatId = con.Id, Id = generateId(Event.SObjectType));
 
     DMLMock mock = loadMock(new List<Event>{ eventOne, eventTwo });
     Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
@@ -1137,8 +1137,8 @@ private class RollupTests {
     update con;
 
     // now the "new" version of eventOne is no longer the max
-    Event eventOne = new Event(ActivityDateTime = con.ActivatedDate.addDays(-25), WhatId = con.Id, Id = TestingUtils.generateId(Event.SObjectType));
-    Event eventTwo = new Event(ActivityDateTime = con.ActivatedDate.addDays(50), WhatId = con.Id, Id = TestingUtils.generateId(Event.SObjectType));
+    Event eventOne = new Event(ActivityDateTime = con.ActivatedDate.addDays(-25), WhatId = con.Id, Id = generateId(Event.SObjectType));
+    Event eventTwo = new Event(ActivityDateTime = con.ActivatedDate.addDays(50), WhatId = con.Id, Id = generateId(Event.SObjectType));
 
     DMLMock mock = loadMock(new List<Event>{ eventOne, eventTwo });
     Rollup.triggerContext = TriggerOperation.AFTER_UPDATE;
@@ -1160,7 +1160,7 @@ private class RollupTests {
     con.ActivatedDate = System.now();
     update con;
 
-    Event eventOne = new Event(ActivityDateTime = con.ActivatedDate, WhatId = con.Id, Id = TestingUtils.generateId(Event.SObjectType));
+    Event eventOne = new Event(ActivityDateTime = con.ActivatedDate, WhatId = con.Id, Id = generateId(Event.SObjectType));
     Event eventTwo = new Event(ActivityDateTime = con.ActivatedDate.addDays(50), WhatId = con.Id, DurationInMinutes = 50);
     insert eventTwo;
 
@@ -1183,7 +1183,7 @@ private class RollupTests {
     con.ActivatedDate = System.now();
     update con;
 
-    Event eventOne = new Event(ActivityDateTime = con.ActivatedDate, WhatId = con.Id, Id = TestingUtils.generateId(Event.SObjectType));
+    Event eventOne = new Event(ActivityDateTime = con.ActivatedDate, WhatId = con.Id, Id = generateId(Event.SObjectType));
     Event eventTwo = new Event(ActivityDateTime = con.ActivatedDate.addDays(-50), WhatId = con.Id, DurationInMinutes = 50);
     insert eventTwo;
 
@@ -1272,12 +1272,12 @@ private class RollupTests {
     ContactPointAddress cp1 = new ContactPointAddress(
       BestTimeToContactEndTime = Time.newInstance(5, 5, 5, 5),
       Name = cpe.EmailDomain,
-      Id = TestingUtils.generateId(ContactPointAddress.SObjectType)
+      Id = generateId(ContactPointAddress.SObjectType)
     );
     ContactPointAddress cp2 = new ContactPointAddress(
       BestTimeToContactEndTime = Time.newInstance(6, 6, 6, 6),
       Name = cpe.EmailDomain,
-      Id = TestingUtils.generateId(ContactPointAddress.SObjectType)
+      Id = generateId(ContactPointAddress.SObjectType)
     );
 
     DMLMock mock = loadMock(new List<ContactPointAddress>{ cp1, cp2 });
@@ -1313,12 +1313,12 @@ private class RollupTests {
     ContactPointAddress cp1 = new ContactPointAddress(
       BestTimeToContactEndTime = Time.newInstance(5, 5, 5, 5),
       Name = cpe.EmailDomain,
-      Id = TestingUtils.generateId(ContactPointAddress.SObjectType)
+      Id = generateId(ContactPointAddress.SObjectType)
     );
     ContactPointAddress cp2 = new ContactPointAddress(
       BestTimeToContactEndTime = Time.newInstance(6, 6, 6, 6),
       Name = cpe.EmailDomain,
-      Id = TestingUtils.generateId(ContactPointAddress.SObjectType)
+      Id = generateId(ContactPointAddress.SObjectType)
     );
 
     DMLMock mock = loadMock(new List<ContactPointAddress>{ cp1, cp2 });
@@ -1354,7 +1354,7 @@ private class RollupTests {
     ContactPointAddress cp1 = new ContactPointAddress(
       BestTimeToContactEndTime = Time.newInstance(5, 5, 5, 5),
       Name = cpe.EmailDomain,
-      Id = TestingUtils.generateId(ContactPointAddress.SObjectType)
+      Id = generateId(ContactPointAddress.SObjectType)
     );
     ContactPointAddress cp2 = new ContactPointAddress(BestTimeToContactEndTime = Time.newInstance(6, 6, 6, 6), Name = cpe.EmailDomain);
     insert cp2;
@@ -1393,7 +1393,7 @@ private class RollupTests {
     ContactPointAddress cp1 = new ContactPointAddress(
       BestTimeToContactEndTime = Time.newInstance(5, 5, 5, 5),
       Name = cpe.EmailDomain,
-      Id = TestingUtils.generateId(ContactPointAddress.SObjectType)
+      Id = generateId(ContactPointAddress.SObjectType)
     );
     ContactPointAddress cp2 = new ContactPointAddress(BestTimeToContactEndTime = Time.newInstance(4, 4, 4, 4), Name = cpe.EmailDomain);
     insert cp2;
@@ -1461,7 +1461,7 @@ private class RollupTests {
 
   @isTest
   static void shouldBeInvokedSuccessfullyAfterSaveFromFlow() {
-    List<Opportunity> opps = new List<Opportunity>{ new Opportunity(Amount = 1000, Id = TestingUtils.generateId(Opportunity.SObjectType)) };
+    List<Opportunity> opps = new List<Opportunity>{ new Opportunity(Amount = 1000, Id = generateId(Opportunity.SObjectType)) };
     DMLMock mock = getMock(opps);
     Rollup.oldRecordsMap = new Map<Id, Opportunity>{ opps[0].Id => new Opportunity(Id = opps[0].Id, Amount = 250) };
 
@@ -1499,8 +1499,8 @@ private class RollupTests {
   @isTest
   static void shouldOnlyIncludeObjectChangedFieldsWhenSuppliedFromFlow() {
     List<Opportunity> opps = new List<Opportunity>{
-      new Opportunity(Amount = 1000, Name = 'Acme opp', Id = TestingUtils.generateId(Opportunity.SObjectType)),
-      new Opportunity(Amount = 500, Name = 'Test name changed opp', Id = TestingUtils.generateId(Opportunity.SObjectType))
+      new Opportunity(Amount = 1000, Name = 'Acme opp', Id = generateId(Opportunity.SObjectType)),
+      new Opportunity(Amount = 500, Name = 'Test name changed opp', Id = generateId(Opportunity.SObjectType))
     };
     DMLMock mock = getMock(opps);
 
@@ -1723,5 +1723,11 @@ private class RollupTests {
     flowInput.rollupOperation = rollupOperation;
 
     return new List<Rollup.FlowInput>{ flowInput };
+  }
+
+  private static Integer startingNumber = 1;
+  private static String generateId(Schema.SObjectType sObjectType) {
+    String result = String.valueOf(startingNumber++);
+    return sObjectType.getDescribe().getKeyPrefix() + '0'.repeat(12 - result.length()) + result;
   }
 }
