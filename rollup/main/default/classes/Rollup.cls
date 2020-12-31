@@ -375,14 +375,14 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       description='The API Name of the field on the record to rollup that matches a field on the object where the rollup will be stored'
       required=true
     )
-    public string lookupFieldOnCalcItem;
+    public String lookupFieldOnCalcItem;
 
     @InvocableVariable(
       label='Lookup Field On Rollup Object'
       description='The API Name of the field on the SObject matching the value found in "lookupFieldOnCalcItem" where the rollup will be stored'
       required=true
     )
-    public string lookupFieldOnOpObject;
+    public String lookupFieldOnOpObject;
 
     @InvocableVariable(
       label='Calc Item Changed Fields'
