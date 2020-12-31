@@ -392,18 +392,15 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
   }
 
   public class FlowOutput {
-    public FlowOutput(FlowInput flowInput) {
+    public FlowOutput() {
       this.isSuccess = true;
       this.Message = 'SUCCESS';
-      this.rollupRecords = flowInput.recordsToRollup;
     }
 
     @InvocableVariable(label='Is Success' description='Was rollup enqueued successfully?')
     public Boolean isSuccess;
     @InvocableVariable(label='Status Message' description='"SUCCESS" when isSuccess is true, otherwise the encountered error message')
     public String message;
-    @InvocableVariable(label='Records to rollup' description='The corresponding records to rollup from the FlowInput')
-    public List<SObject> rollupRecords;
   }
 
   @InvocableMethod(
@@ -431,7 +428,7 @@ public without sharing virtual class Rollup implements Database.Batchable<SObjec
       Set<String> fieldNames;
 
       for (FlowInput flowInput : flowInputs) {
-        FlowOutput flowOutput = new FlowOutput(flowInput);
+        FlowOutput flowOutput = new FlowOutput();
         flowOutputReturns.add(flowOutput);
 
         if (flowInput.recordsToRollup.isEmpty()) {
