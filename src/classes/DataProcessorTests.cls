@@ -24,8 +24,6 @@ private class DataProcessorTests {
 
   static void runTest() {
     Test.startTest();
-    //for actual implementers, you would actually
-    //be calling Factory.getFactory().getTheImplementer.process();
     new TestAccountProcessor(Factory.getFactory()).process();
     Test.stopTest();
 

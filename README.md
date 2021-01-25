@@ -3,8 +3,6 @@
 Hi there. If you're reading this, it's likely you're here after reading the [Data Processor Batchable And Queueable Apex](https://www.jamessimone.net/blog/the-joys-of-apex/batchable-and-queueable-apex) post. I've linked the relevant classes from that post below, followed by the Readme for the Repository Pattern, which this post is based on:
 
 - [DataProcessor](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/DataProcessor.cls)
-- [DataProcessorBatchable](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/DataProcessorBatchable.cls)
-- [DataProcessorQueueable](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/DataProcessorQueueable.cls)
 - [DataProcessorTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/DataProcessorTests.cls)
 - [Factory](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/Factory.cls)
 - [QueryWrapper](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/QueryWrapper.cls)
