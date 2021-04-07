@@ -144,7 +144,7 @@ export default class CustomPath extends LightningElement {
     ].reduce((validSoFar, formElement) => {
       formElement.reportValidity();
       return validSoFar && formElement.checkValidity();
-    });
+    }, true);
     if (allValid) {
       this._toggleModal();
       await this._saveLeadAndToast();
