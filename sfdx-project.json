@@ -6,7 +6,8 @@
       "package": "ApexMocks",
       "versionName": "0.1",
       "versionNumber": "0.1.0.NEXT"
-    }
+    },
+    {"path": "src"}
   ],
   "namespace": "",
   "sfdcLoginUrl": "https://login.salesforce.com"
