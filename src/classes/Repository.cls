@@ -1,4 +1,4 @@
-public virtual class Repository implements IRepository {
+public virtual without sharing class Repository implements IRepository {
     private final IDML dml;
     private final List<Schema.SObjectField> queryFields;
     private final Schema.SObjectType repoType;
@@ -31,15 +31,15 @@ public virtual class Repository implements IRepository {
     }
 
     private String getSelectAndFrom() {
-      return 'SELECT ' + this.addSelectFields() + '\nFROM ' + this.repoType;
+      return 'SELECT ' + String.join(new List<String>(this.addSelectFields()), ', ')+ '\nFROM ' + this.repoType;
     }
 
-    private String addSelectFields() {
+    protected virtual Set<String> addSelectFields() {
       Set<String> fieldStrings = new Set<String>{ 'Id' };
       for (SObjectField field : this.queryFields) {
         fieldStrings.add(field.getDescribe().getName());
       }
-      return String.join(new List<String>(fieldStrings), ', ');
+      return fieldStrings;
     }
 
     private String addWheres(List<Query> queries) {

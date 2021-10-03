@@ -1,4 +1,14 @@
-# ApexMocks Testing Library: The Repository Pattern
+# Apex Mocks Testing Library: Strongly Typed Queries
+
+Welcome back to another [Joys Of Apex](https://www.jamessimone.net/blog/joys-of-apex/repository-pattern/you-need-a-strongly-typed-query-builder/) post. The following classes will be helpful to explore (in addition to the below **The Repository Pattern** section of this Readme):
+
+- [AggregateRepository](https://github.com/jamessimone/apex-mocks-stress-test/blob/strongly-typed-queries/core/classes/AggregateRepository.cls)
+- [AggregateRepositoryTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/strongly-typed-queries/core/classes/AggregateRepositoryTests.cls)
+- [Aggregation](https://github.com/jamessimone/apex-mocks-stress-test/blob/strongly-typed-queries/core/classes/Aggregation.cls)
+- [AggregationTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/strongly-typed-queries/core/classes/AggregationTests.cls)
+- [IAggregateRepository](https://github.com/jamessimone/apex-mocks-stress-test/blob/strongly-typed-queries/core/classes/IAggregateRepository.cls)
+
+## Apex Mocks Testing Library: The Repository Pattern
 
 Hello! If you've arrived here via [The Repository Pattern](https://www.jamessimone.net/blog/joys-of-apex/repository-pattern/), you'll note that the Readme is slightly different from the Master branch of this repository. At its core, the Apex Mocks library uses 3 basic concepts to supercharge your Apex test results and empower you to easily do true unit testing within Apex:
 
