@@ -1,5 +1,8 @@
 public virtual class Factory {
-  public RepoFactory RepoFactory { get; private set; }
+  // this is only "protected set" to show-case how your own
+  // Factory might function in the example app. Make this a private set
+  // in your own code!
+  public RepoFactory RepoFactory { get; protected set; }
 
   @testVisible
   private static Factory factory;
@@ -15,10 +18,6 @@ public virtual class Factory {
     }
 
     return factory;
-  }
-
-  public OpportunityUpdater getOpportunityUpdater() {
-    return new OpportunityUpdater(this);
   }
 
   // create methods to initialize your objects here

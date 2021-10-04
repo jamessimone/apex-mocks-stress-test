@@ -1,11 +1,14 @@
-public inherited sharing class AggregateRepository extends Repository implements IAggregateRepository {
-  private final Set<String> aggregatedFieldNames;
+public inherited sharing virtual class AggregateRepository extends Repository implements IAggregateRepository {
   private final Set<String> groupedByFieldNames;
   private List<Aggregation> aggregations;
+  private Boolean isNumberCountQuery = false;
   public AggregateRepository(Schema.SObjectType repoType, List<Schema.SObjectField> queryFields, RepoFactory repoFactory) {
     super(repoType, queryFields, repoFactory);
-    this.aggregatedFieldNames = new Set<String>();
     this.groupedByFieldNames = new Set<String>();
+  }
+
+  protected AggregateRepository(RepoFactory repoFactory) {
+    super(repoFactory);
   }
 
   public void groupBy(Schema.SObjectField fieldToken) {
@@ -22,7 +25,10 @@ public inherited sharing class AggregateRepository extends Repository implements
     return this.count(new List<Query>{ query });
   }
   public Integer count(List<Query> queries) {
-    return null;
+    this.isNumberCountQuery = true;
+    Integer recordCount = Database.countQuery(this.getFinalQuery(queries));
+    this.isNumberCountQuery = false;
+    return recordCount;
   }
 
   public List<AggregateResult> aggregate(Aggregation aggregation) {
@@ -40,18 +46,28 @@ public inherited sharing class AggregateRepository extends Repository implements
   public List<AggregateResult> aggregate(List<Aggregation> aggregations, Query query) {
     return this.aggregate(aggregations, new List<Query>{ query });
   }
-  public List<AggregateResult> aggregate(List<Aggregation> aggregations, List<Query> queries) {
+  public virtual List<AggregateResult> aggregate(List<Aggregation> aggregations, List<Query> queries) {
     this.aggregations = aggregations;
-    // TODO - add group by clauses
     return (List<AggregateResult>) this.get(queries);
   }
 
   protected override Set<String> addSelectFields() {
-    Set<String> baseFields = super.addSelectFields();
+    Set<String> baseFields = new Set<String>();
+    if (this.isNumberCountQuery) {
+      baseFields.add('COUNT()');
+      return baseFields;
+    }
+
+    Boolean aggregatesIdField = false;
     for (Aggregation agg : aggregations) {
       baseFields.add(agg.toString());
-      baseFields.remove(agg.getFieldName());
     }
+    baseFields.addAll(this.groupedByFieldNames);
     return baseFields;
+  }
+
+  protected override String getFinalQuery(List<Query> queries) {
+    String baseString = super.getFinalQuery(queries);
+    return this.groupedByFieldNames.isEmpty() ? baseString : baseString + '\nGROUP BY ' + String.join(new List<String>(this.groupedByFieldNames), ',');
   }
 }

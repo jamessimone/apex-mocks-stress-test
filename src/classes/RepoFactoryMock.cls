@@ -1,43 +1,57 @@
 public class RepoFactoryMock extends RepoFactory {
-    @testVisible
-    private static List<SObject> QueryResults = new List<SObject>();
-    @testVisible
-    private static List<Query> QueriesMade = new List<Query>();
+  @TestVisible
+  private static List<Aggregation> AggregatesMade = new List<Aggregation>();
+  @TestVisible
+  private static List<SObject> QueryResults = new List<SObject>();
+  @TestVisible
+  private static List<Query> QueriesMade = new List<Query>();
 
-    public override IRepository getOppLineItemRepo() {
-        List<SObject> queriedResults = this.getResults(OpportunityLineItem.SObjectType);
-        return queriedResults.size() > 0 ?
-            new RepoMock(queriedResults) :
-            super.getOppLineItemRepo();
+  public override IAggregateRepository getOppLineItemRepo() {
+    List<SObject> queriedResults = this.getResults(OpportunityLineItem.SObjectType);
+    return queriedResults.size() > 0 ? new RepoMock(queriedResults, this) : super.getOppLineItemRepo();
+  }
+
+  private List<SObject> getResults(SObjectType sobjType) {
+    List<SObject> resultList = new List<SObject>();
+    for (SObject potentialResult : QueryResults) {
+      if (potentialResult.getSObjectType() == sobjType) {
+        System.assert(false, potentialResult);
+        resultList.add(potentialResult);
+      }
+    }
+    return resultList;
+  }
+
+  @TestVisible
+  private class RepoMock extends AggregateRepository {
+    private final List<SObject> results;
+
+    @TestVisible
+    private RepoMock() {
+      this(new List<SObject>(), new RepoFactoryMock());
     }
 
-    private List<SObject> getResults(SObjectType sobjType) {
-        List<SObject> resultList = new List<SObject>();
-        for(SObject potentialResult : QueryResults) {
-            if(potentialResult.getSObjectType() == sobjType) {
-                resultList.add(potentialResult);
-            }
-        }
-        return resultList;
+    public RepoMock(List<SObject> results, RepoFactory factory) {
+      super(factory);
+      this.results = results;
     }
 
-    //now, when you reach the point
-    //in testing where you need to
-    //stub out a specific repo
-    private class RepoMock implements IRepository {
-        private final List<SObject> results;
-
-        public RepoMock(List<SObject> results) {
-            this.results = results;
-        }
-
-        public List<SObject> get(Query query) {
-            return this.get(new List<Query>{ query });
-        }
-
-        public List<SObject> get(List<Query> queries) {
-            QueriesMade.addAll(queries);
-            return this.results;
-        }
+    public override List<SObject> getAll() {
+      return this.get(new List<Query>());
     }
+
+    public override List<SObject> get(Query query) {
+      return this.get(new List<Query>{ query });
+    }
+
+    public override List<SObject> get(List<Query> queries) {
+      QueriesMade.addAll(queries);
+      return this.results;
+    }
+
+    public override List<AggregateResult> aggregate(List<Aggregation> aggregations, List<Query> queries) {
+      AggregatesMade.addAll(aggregations);
+      return (List<AggregateResult>) this.get(queries);
+    }
+  }
 }
