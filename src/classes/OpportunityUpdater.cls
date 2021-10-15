@@ -23,10 +23,9 @@ public class OpportunityUpdater {
 
     Query oppQuery = Query.equals(Opportunity.Id, idtoUpdatedOpps.keySet());
     Aggregation overSixFigures = Aggregation.sum(OpportunityLineItem.TotalPrice, 'sumOli');
-    List<AggregateResult> results = this.oppLineItemRepo.aggregate(overSixFigures, oppQuery);
-    System.assert(false, results);
+    List<AggregateRecord> results = this.oppLineItemRepo.aggregate(overSixFigures, oppQuery);
 
-    for (AggregateResult res : results) {
+    for (AggregateRecord res : results) {
       Decimal totalSalesPrice = (Decimal) res.get(overSixFigures.getAlias());
       if (totalSalesPrice > 100000) {
         Id oppId = (Id) res.get('OpportunityId');

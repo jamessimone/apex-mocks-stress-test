@@ -36,10 +36,10 @@ private class AggregateRepositoryTests {
       new RepoFactory()
     );
     repo.groupBy(Opportunity.AccountId);
-    List<AggregateResult> results = repo.aggregate(sum);
+    List<AggregateRecord> results = repo.aggregate(sum);
 
     System.assertEquals(2, results?.size());
-    for (AggregateResult res : results) {
+    for (AggregateRecord res : results) {
       if (res.get('AccountId') == secondParent.Id) {
         System.assertEquals(2, res.get(sum.getAlias()));
       } else {
@@ -70,7 +70,7 @@ private class AggregateRepositoryTests {
       new RepoFactory()
     );
     Aggregation countOfAmount = Aggregation.count(Opportunity.Amount, 'wowza');
-    List<AggregateResult> results = repo.aggregate(countOfAmount);
+    List<AggregateRecord> results = repo.aggregate(countOfAmount);
 
     System.assertEquals(1, results.size());
     System.assertEquals(1, results[0].get(countOfAmount.getAlias()));

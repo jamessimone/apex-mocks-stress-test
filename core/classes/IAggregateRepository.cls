@@ -7,10 +7,10 @@ public interface IAggregateRepository extends IRepository {
   Integer count(Query query);
   Integer count(List<Query> queries);
   // with support for sum, count, count distinct, average, max, min
-  List<AggregateResult> aggregate(Aggregation aggregation);
-  List<AggregateResult> aggregate(Aggregation aggregation, Query query);
-  List<AggregateResult> aggregate(Aggregation aggregation, List<Query> queries);
-  List<AggregateResult> aggregate(List<Aggregation> aggregations);
-  List<AggregateResult> aggregate(List<Aggregation> aggregations, Query query);
-  List<AggregateResult> aggregate(List<Aggregation> aggregations, List<Query> queries);
+  List<AggregateRecord> aggregate(Aggregation aggregation);
+  List<AggregateRecord> aggregate(Aggregation aggregation, Query query);
+  List<AggregateRecord> aggregate(Aggregation aggregation, List<Query> queries);
+  List<AggregateRecord> aggregate(List<Aggregation> aggregations);
+  List<AggregateRecord> aggregate(List<Aggregation> aggregations, Query query);
+  List<AggregateRecord> aggregate(List<Aggregation> aggregations, List<Query> queries);
 }

@@ -31,24 +31,31 @@ public inherited sharing virtual class AggregateRepository extends Repository im
     return recordCount;
   }
 
-  public List<AggregateResult> aggregate(Aggregation aggregation) {
+  public List<AggregateRecord> aggregate(Aggregation aggregation) {
     return this.aggregate(new List<Aggregation>{ aggregation}, new List<Query>());
   }
-  public List<AggregateResult> aggregate(Aggregation aggregation, Query query) {
+  public List<AggregateRecord> aggregate(Aggregation aggregation, Query query) {
     return this.aggregate(new List<Aggregation>{ aggregation}, new List<Query>{ query });
   }
-  public List<AggregateResult> aggregate(Aggregation aggregation, List<Query> queries) {
+  public List<AggregateRecord> aggregate(Aggregation aggregation, List<Query> queries) {
     return this.aggregate(new List<Aggregation>{ aggregation}, queries);
   }
-  public List<AggregateResult> aggregate(List<Aggregation> aggregations) {
+  public List<AggregateRecord> aggregate(List<Aggregation> aggregations) {
     return this.aggregate(aggregations, new List<Query>());
   }
-  public List<AggregateResult> aggregate(List<Aggregation> aggregations, Query query) {
+  public List<AggregateRecord> aggregate(List<Aggregation> aggregations, Query query) {
     return this.aggregate(aggregations, new List<Query>{ query });
   }
-  public virtual List<AggregateResult> aggregate(List<Aggregation> aggregations, List<Query> queries) {
+  public virtual List<AggregateRecord> aggregate(List<Aggregation> aggregations, List<Query> queries) {
     this.aggregations = aggregations;
-    return (List<AggregateResult>) this.get(queries);
+    List<AggregateResult> results = (List<AggregateResult>) this.get(queries);
+    List<AggregateRecord> aggregateRecords = new List<AggregateRecord>();
+    for (AggregateResult result : results) {
+      AggregateRecord aggRecord = new AggregateRecord();
+      aggRecord.putAll(result.getPopulatedFieldsAsMap());
+      aggregateRecords.add(aggRecord);
+    }
+    return aggregateRecords;
   }
 
   protected override Set<String> addSelectFields() {

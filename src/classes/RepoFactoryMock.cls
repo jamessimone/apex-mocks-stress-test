@@ -1,5 +1,7 @@
 public class RepoFactoryMock extends RepoFactory {
   @TestVisible
+  private static Map<SObjectType, List<AggregateRecord>> AggregateResults = new Map<SObjectType, List<AggregateRecord>>();
+  @TestVisible
   private static List<Aggregation> AggregatesMade = new List<Aggregation>();
   @TestVisible
   private static List<SObject> QueryResults = new List<SObject>();
@@ -7,24 +9,42 @@ public class RepoFactoryMock extends RepoFactory {
   private static List<Query> QueriesMade = new List<Query>();
 
   public override IAggregateRepository getOppLineItemRepo() {
-    List<SObject> queriedResults = this.getResults(OpportunityLineItem.SObjectType);
-    return queriedResults.size() > 0 ? new RepoMock(queriedResults, this) : super.getOppLineItemRepo();
+    return this.getRepoFromSObjectType(OpportunityLineItem.SObjectType, super.getOppLineItemRepo());
+  }
+
+  private IAggregateRepository getRepoFromSObjectType(SObjectType sObjectType, IAggregateRepository fallback) {
+    IAggregateRepository repo;
+    List<SObject> queriedResults = this.getResults(sObjectType);
+    List<AggregateRecord> aggRecords = this.getAggregateResults(sObjectType);
+
+    if (queriedResults.size() > 0) {
+      repo = new RepoMock(queriedResults, this);
+    } else if (aggRecords?.size() > 0) {
+      repo = new RepoMock(aggRecords, this);
+    } else {
+      repo = fallback;
+    }
+    return repo;
   }
 
   private List<SObject> getResults(SObjectType sobjType) {
     List<SObject> resultList = new List<SObject>();
     for (SObject potentialResult : QueryResults) {
       if (potentialResult.getSObjectType() == sobjType) {
-        System.assert(false, potentialResult);
         resultList.add(potentialResult);
       }
     }
     return resultList;
   }
 
+  private List<AggregateRecord> getAggregateResults(SObjectType sObjType) {
+    return AggregateResults.get(sObjType);
+  }
+
   @TestVisible
   private class RepoMock extends AggregateRepository {
     private final List<SObject> results;
+    private final List<AggregateRecord> aggRecords;
 
     @TestVisible
     private RepoMock() {
@@ -34,6 +54,11 @@ public class RepoFactoryMock extends RepoFactory {
     public RepoMock(List<SObject> results, RepoFactory factory) {
       super(factory);
       this.results = results;
+    }
+
+    public RepoMock(List<AggregateRecord> records, RepoFactory factory) {
+      super(factory);
+      this.aggRecords = records;
     }
 
     public override List<SObject> getAll() {
@@ -49,9 +74,10 @@ public class RepoFactoryMock extends RepoFactory {
       return this.results;
     }
 
-    public override List<AggregateResult> aggregate(List<Aggregation> aggregations, List<Query> queries) {
+    public override List<AggregateRecord> aggregate(List<Aggregation> aggregations, List<Query> queries) {
       AggregatesMade.addAll(aggregations);
-      return (List<AggregateResult>) this.get(queries);
+      QueriesMade.addAll(queries);
+      return this.aggRecords;
     }
   }
 }

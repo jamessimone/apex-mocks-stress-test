@@ -2,6 +2,7 @@
 
 Welcome back to another [Joys Of Apex](https://www.jamessimone.net/blog/joys-of-apex/repository-pattern/you-need-a-strongly-typed-query-builder/) post. The following classes will be helpful to explore (in addition to the below **The Repository Pattern** section of this Readme):
 
+- [AggregateRecord](https://github.com/jamessimone/apex-mocks-stress-test/blob/strongly-typed-queries/core/classes/AggregateRecord.cls)
 - [AggregateRepository](https://github.com/jamessimone/apex-mocks-stress-test/blob/strongly-typed-queries/core/classes/AggregateRepository.cls)
 - [AggregateRepositoryTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/strongly-typed-queries/core/classes/AggregateRepositoryTests.cls)
 - [Aggregation](https://github.com/jamessimone/apex-mocks-stress-test/blob/strongly-typed-queries/core/classes/Aggregation.cls)
