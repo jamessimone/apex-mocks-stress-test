@@ -15,7 +15,7 @@ It was suggested on Reddit following the publication of my second blog post on [
 1. Create a new salesforce instance ... I just [signed up](https://developer.salesforce.com/signup) for one and got my security token emailed to me.
 2. Git cloned [fflib-apexmocks](https://github.com/apex-enterprise-patterns/fflib-apex-mocks).
 3. Clean up all the junk - I just took the latest version of their classes and deleted the rest.
-4. Added `Crud`, `Crud_Tests`, `CrudMock`, `CrudMock_Tests`, `ICrud`, `TypeUtils`, and `TestingUtils` from my private repo for testing.
+4. Added `Crud`, `Crud_Tests`, `CrudMock`, `ICrud`, `TypeUtils`, and `TestingUtils` from my private repo for testing.
 5. Wrote some stress tests in `ApexMocksTests`.
 6. Run `cp .envexample .env` and fill out your login data there.
 7. Deployed it all using `yarn deploy` (you can toggle tests running using the RUN_TESTS flag in your .env file).
