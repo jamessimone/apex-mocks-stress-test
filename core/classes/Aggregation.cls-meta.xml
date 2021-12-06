@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<ApexClass xmlns="http://soap.sforce.com/2006/04/metadata">
-<<<<<<< HEAD:core/classes/Aggregation.cls-meta.xml
-    <apiVersion>52.0</apiVersion>
-=======
-    <apiVersion>48.0</apiVersion>
->>>>>>> c7e3d7a (Initial commit with setTimeout/delay branch):src/classes/PlatformCacheTests.cls-meta.xml
-    <status>Active</status>
-</ApexClass>

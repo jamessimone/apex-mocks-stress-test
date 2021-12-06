@@ -48,7 +48,12 @@ public class RepoFactoryMock extends RepoFactory {
 
     @TestVisible
     private RepoMock() {
-      this(new List<SObject>(), new RepoFactoryMock());
+      this(new List<SObject>());
+    }
+
+    @TestVisible
+    private RepoMock(List<SObject> records) {
+      this(records, new RepoFactoryMock());
     }
 
     public RepoMock(List<SObject> results, RepoFactory factory) {

@@ -1,34 +1,22 @@
-# Apex Mocks Testing Library: Strongly Typed Queries
+# Round Robin Assignment
+The classes associated with an upcoming Joys Of Apex post on Round Robin assignment:
 
-Welcome back to another [Joys Of Apex](https://www.jamessimone.net/blog/joys-of-apex/repository-pattern/you-need-a-strongly-typed-query-builder/) post. The following classes will be helpful to explore (in addition to the below **The Repository Pattern** section of this Readme):
 
-- [AggregateRecord](https://github.com/jamessimone/apex-mocks-stress-test/blob/strongly-typed-queries/core/classes/AggregateRecord.cls)
-- [AggregateRepository](https://github.com/jamessimone/apex-mocks-stress-test/blob/strongly-typed-queries/core/classes/AggregateRepository.cls)
-- [AggregateRepositoryTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/strongly-typed-queries/core/classes/AggregateRepositoryTests.cls)
-- [Aggregation](https://github.com/jamessimone/apex-mocks-stress-test/blob/strongly-typed-queries/core/classes/Aggregation.cls)
-- [AggregationTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/strongly-typed-queries/core/classes/AggregationTests.cls)
-- [IAggregateRepository](https://github.com/jamessimone/apex-mocks-stress-test/blob/strongly-typed-queries/core/classes/IAggregateRepository.cls)
+- [AbstractCacheRepo](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/core/classes/AbstractCacheRepo.cls)
+- [ICachedRepo](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/core/classes/ICachedRepo.cls)
+- [PlatformCacheTests](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/core/classes/PlatformCacheTests.cls)
+- [StaticTransactionTester](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/core/classes/StaticTransactionTester.cls) - this one was run manually via Anoynmous Apex to exhibit static cached variables not being enough for cross-thread caching
 
-## Apex Mocks Testing Library: The Repository Pattern
+- [Factory](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/Factory.cls)
+- [IRepository](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/IRepository.cls)
+- [Repository](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/Repository.cls)
+- [RepositoryTests](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/RepositoryTests.cls)
+- [Query](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/Query.cls)
+- [QueryTests](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/QueryTests.cls)
+- [RepoFactory](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/RepoFactory.cls)
+- [RepoFactoryMocks](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/RepoFactoryMocks.cls)
 
-Hello! If you've arrived here via [The Repository Pattern](https://www.jamessimone.net/blog/joys-of-apex/repository-pattern/), you'll note that the Readme is slightly different from the Master branch of this repository. At its core, the Apex Mocks library uses 3 basic concepts to supercharge your Apex test results and empower you to easily do true unit testing within Apex:
-
-- the use of IoC / Dependency Injection via the [Factory Pattern](https://www.jamessimone.net/blog/joys-of-apex/dependency-injection-factory-pattern)
-- the use of [DML (data manipulation language) mocking](https://www.jamessimone.net/blog/joys-of-apex/mocking-dml) for SObject creation / updating / upserting / deleting / undeleting
-- the use of the Repository Pattern to replace raw SOQL in your Salesforce.com code
-
-This repository also contains the FFLib library classes in order to perform the stress tests I've detailed below, which can make scrolling through the class list a bit tedious. The relevant classes that you'll want to look at in this branch I've listed below:
-
-- [Factory](https://github.com/jamessimone/apex-mocks-stress-test/tree/repository/src/classes/Factory.cls)
-- [IRepository](https://github.com/jamessimone/apex-mocks-stress-test/tree/repository/src/classes/IRepository.cls)
-- [Repository](https://github.com/jamessimone/apex-mocks-stress-test/tree/repository/src/classes/Repository.cls)
-- [RepositoryTests](https://github.com/jamessimone/apex-mocks-stress-test/tree/repository/src/classes/RepositoryTests.cls)
-- [Query](https://github.com/jamessimone/apex-mocks-stress-test/tree/repository/src/classes/Query.cls)
-- [QueryTests](https://github.com/jamessimone/apex-mocks-stress-test/tree/repository/src/classes/QueryTests.cls)
-- [RepoFactory](https://github.com/jamessimone/apex-mocks-stress-test/tree/repository/src/classes/RepoFactory.cls)
-- [RepoFactoryMocks](https://github.com/jamessimone/apex-mocks-stress-test/tree/repository/src/classes/RepoFactoryMocks.cls)
-
-Thanks for visting and perusing the code. Without further ado, the primary (Master branch) introduction to the Apex Mocks library is presented below:
+Thanks for visting and perusing the code. Without further ado, the primary branch introduction to the Apex Mocks library is presented below:
 
 ## Introduction
 
