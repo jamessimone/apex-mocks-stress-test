@@ -9,7 +9,19 @@ public class RoundRobinRepository extends AbstractCacheRepo {
       this.forceRefreshCache();
       this.accept(visitor, records);
     }
+    currentAssignment.LastUpdated__c = System.now();
+    upsert currentAssignment;
   }
+
+  /** AbstractCacheRepo overrides */
+  protected override Object populateCache() {
+    return getRoundRobinRecords();
+  }
+
+  protected override String getCacheKey() {
+    return RoundRobinRepository.class.getName();
+  }
+  /** end AbstractCacheRepo overrides */
 
   private RoundRobin__c getCurrentAssignment(String assignmentType) {
     if (CACHED_ASSIGNMENTS == null) {
@@ -44,14 +56,6 @@ public class RoundRobinRepository extends AbstractCacheRepo {
 
     CACHED_ASSIGNMENTS.put(updatedAssignment.Name, updatedAssignment);
     return wasCommitSuccessful;
-  }
-
-  protected override Object populateCache() {
-    return getRoundRobinRecords();
-  }
-
-  protected override String getCacheKey() {
-    return RoundRobinRepository.class.getName();
   }
 
   private Map<String, RoundRobin__c> getCachedAssignments() {
