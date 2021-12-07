@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>IsRoundRobinActive__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Used to determine when records should be assigned/re-assigned</description>
+    <externalId>false</externalId>
+    <label>Is Round Robin Active</label>
+    <trackFeedHistory>false</trackFeedHistory>
+    <type>Checkbox</type>
+</CustomField>

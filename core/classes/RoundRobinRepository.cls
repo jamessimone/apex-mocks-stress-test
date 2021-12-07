@@ -2,7 +2,7 @@ public class RoundRobinRepository extends AbstractCacheRepo {
   private static Map<String, RoundRobin__c> CACHED_ASSIGNMENTS;
   private static final String SENTINEL_USER_INDEX = getSentinelIndex();
 
-  public void accept(IThreadSafeVisitor visitor, List<SObject> records) {
+  public void accept(IThreadSafeCacheVisitor visitor, List<SObject> records) {
     RoundRobin__c currentAssignment = this.getCurrentAssignment(visitor.getVisitKey());
     visitor.visitRecords(records, currentAssignment);
     while (this.commitUpdatedAssignment(currentAssignment) == false) {
