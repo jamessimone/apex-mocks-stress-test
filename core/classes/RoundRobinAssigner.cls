@@ -5,7 +5,7 @@ public without sharing class RoundRobinAssigner implements IThreadSafeCacheVisit
   private String assignmentType;
 
   private static final Integer SENTINEL_INDEX = -1;
-  private static final String OWNER_Id = 'OwnerId';
+  private static final String OWNER_ID = 'OwnerId';
 
   public interface IAssignmentRepo {
     List<Id> getAssignmentIds(String assignmentType);
@@ -31,10 +31,10 @@ public without sharing class RoundRobinAssigner implements IThreadSafeCacheVisit
     Set<Id> activeAssignmentIds = new Set<Id>(assignmentIds);
     Integer nextAssignmentIndex = this.getNextAssignmentIndex(assignmentIds, cachedAssignment);
     for (SObject record : records) {
-      Id ownerId = (Id) record.get(OWNER_Id);
+      Id ownerId = (Id) record.get(OWNER_ID);
       Id nextOwnerId = assignmentIds[nextAssignmentIndex];
       if (ownerId == null || activeAssignmentIds.contains(ownerId) == false) {
-        record.put(OWNER_Id, nextOwnerId);
+        record.put(OWNER_ID, nextOwnerId);
         cachedAssignment.Index__c = nextOwnerId;
         nextAssignmentIndex = nextAssignmentIndex == assignmentIds.size() - 1 ? 0 : nextAssignmentIndex + 1;
       }
