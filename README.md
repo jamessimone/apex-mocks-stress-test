@@ -1,22 +1,31 @@
 # Round Robin Assignment
+
 The classes associated with an upcoming Joys Of Apex post on Round Robin assignment:
 
+- [IThreadSafeCacheVisitor](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/core/classes/IThreadSafeCacheVisitor.cls)
+- [RepoFactoryMocks](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/RepoFactoryMocks.cls)
+- [RoundRobinAssigner](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/core/classes/RoundRobinAssigner.cls)
+- [RoundRobinAssignerTests](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/core/classes/RoundRobinAssignerTests.cls)
+- [RoundRobinRepository](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/core/classes/RoundRobinRepository.cls)
+- [RoundRobinRepositoryTests](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/core/classes/RoundRobinRepositoryTests.cls)
+- [SDRUserRepo](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/core/classes/SDRUserRepo.cls)
+- [SDRUserRepoTests](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/core/classes/SDRUserRepoTests.cls)
+
+---
+
+Tangentially related but not the primary focus of this post:
 
 - [AbstractCacheRepo](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/core/classes/AbstractCacheRepo.cls)
 - [ICachedRepo](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/core/classes/ICachedRepo.cls)
+- [IRepository](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/IRepository.cls)
+- [Query](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/Query.cls)
+- [QueryTests](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/QueryTests.cls)
+- [Repository](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/Repository.cls)
+- [RepositoryTests](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/RepositoryTests.cls)
 - [PlatformCacheTests](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/core/classes/PlatformCacheTests.cls)
 - [StaticTransactionTester](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/core/classes/StaticTransactionTester.cls) - this one was run manually via Anoynmous Apex to exhibit static cached variables not being enough for cross-thread caching
 
-- [Factory](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/Factory.cls)
-- [IRepository](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/IRepository.cls)
-- [Repository](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/Repository.cls)
-- [RepositoryTests](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/RepositoryTests.cls)
-- [Query](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/Query.cls)
-- [QueryTests](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/QueryTests.cls)
-- [RepoFactory](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/RepoFactory.cls)
-- [RepoFactoryMocks](https://github.com/jamessimone/apex-mocks-stress-test/tree/round-robin-assignment/src/classes/RepoFactoryMocks.cls)
-
-Thanks for visting and perusing the code. Without further ado, the primary branch introduction to the Apex Mocks library is presented below:
+Thanks for visting and perusing the code! I really appreciate all the time readers take to go through these examples -- I hope they have proved of use! Without further ado, the primary branch introduction to the Apex Mocks library is presented below:
 
 ## Introduction
 

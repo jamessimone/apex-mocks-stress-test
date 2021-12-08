@@ -3,13 +3,15 @@ private class RoundRobinAssignerTests {
   @IsTest
   static void shouldRoundRobinSalesLeads() {
     // arrange
-    List<User> users = createUsersForDepartment('SDR');
+    String assignmentType = 'SDR';
+    List<User> users = createUsersForDepartment(assignmentType);
     IRepository mockUserRepo = new RepoFactoryMock.RepoMock(users);
 
     List<Lead> leadsToAssign = new List<Lead>{ new Lead(), new Lead(), new Lead(), new Lead() };
 
     // act
-    new RoundRobinAssigner(mockUserRepo).assignOwners(leadsToAssign);
+    RoundRobinAssigner.IAssignmentRepo repo = new SDRUserRepo(mockUserRepo);
+    new RoundRobinAssigner(repo).assignOwners(leadsToAssign, assignmentType);
 
     // assert
     Integer firstInsideSalesUserAssignmentCount = 0;
@@ -25,12 +27,16 @@ private class RoundRobinAssignerTests {
     }
     System.assertEquals(2, firstInsideSalesUserAssignmentCount, 'Leads should have been assigned equally');
     System.assertEquals(2, secondInsideSalesUserAssignmentCount, 'Leads should have been assigned equally');
+    // now verify that the assignment index was updated
+    RoundRobin__c cachedAssignment = [SELECT LastUpdated__c, Index__c FROM RoundRobin__c WHERE Name = :assignmentType];
+    System.assertEquals(users[1].Id, cachedAssignment.Index__c, 'Last assigned user should match updated index');
   }
 
   @IsTest
   static void shouldRoundRobinPreviouslyAssignedLeadsWhenTheirCurrentOwnerFlagIsInactive() {
     // arrange
-    List<User> users = createUsersForDepartment('SDR');
+    String assignmentType = 'SDR';
+    List<User> users = createUsersForDepartment(assignmentType);
     User inactiveUser = users.remove(0);
 
     IRepository mockUserRepo = new RepoFactoryMock.RepoMock(users);
@@ -43,7 +49,8 @@ private class RoundRobinAssignerTests {
     };
 
     // act
-    new RoundRobinAssigner(mockUserRepo).assignOwners(leadsToAssign);
+    RoundRobinAssigner.IAssignmentRepo repo = new SDRUserRepo(mockUserRepo);
+    new RoundRobinAssigner(repo).assignOwners(leadsToAssign, assignmentType);
 
     // assert
     for (Lead assignedLead : leadsToAssign) {
