@@ -5,7 +5,7 @@ public class RoundRobinRepository extends AbstractCacheRepo {
   public void accept(IThreadSafeCacheVisitor visitor, List<SObject> records) {
     RoundRobin__c currentAssignment = this.getCurrentAssignment(visitor.getVisitKey());
     visitor.visitRecords(records, currentAssignment);
-    while (this.commitUpdatedAssignment(currentAssignment) == false) {
+    if (this.commitUpdatedAssignment(currentAssignment) == false) {
       this.forceRefreshCache();
       this.accept(visitor, records);
     }
