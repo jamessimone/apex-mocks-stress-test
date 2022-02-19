@@ -1,4 +1,11 @@
-# Apex Mocks Testing Library: Strongly Typed Queries
+# Apex Mocks Testing Library: Parent-Child Queries
+
+Welcome back to another [Joys Of Apex](https://www.jamessimone.net/blog/joys-of-apex/parent-and-child-field-query-builder/) post. The following classes will be helpful to explore (in addition to the below **Strongly Typed Queries** section of this Readme):
+
+- [Repository](src\classes\Repository.cls)
+- [RepositoryTests](src\classes\RepositoryTests.cls)
+
+## Apex Mocks Testing Library: Strongly Typed Queries
 
 Welcome back to another [Joys Of Apex](https://www.jamessimone.net/blog/joys-of-apex/you-need-a-strongly-typed-query-builder/) post. The following classes will be helpful to explore (in addition to the below **The Repository Pattern** section of this Readme):
 

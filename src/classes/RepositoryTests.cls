@@ -79,7 +79,7 @@ private class RepositoryTests {
 
   @isTest
   static void it_should_decorate_dml_methods() {
-    IRepository repo = Factory.getFactory().withMocks.RepoFactory.getOppRepo();
+    IRepository repo = new ContactPointAddressRepo();
     Account acc = new Account();
     List<Account> accs = new List<Account>{ acc };
 
@@ -106,6 +106,26 @@ private class RepositoryTests {
     repo.doHardDelete(acc);
     repo.doHardDelete(accs);
     System.assertEquals(acc, DMLMock.Deleted.Accounts.firstOrDefault);
+  }
+
+  @IsTest
+  static void parentFieldsAreSupported() {
+    IRepository repo = new OpportunityRepo();
+    repo.addParentFields(Account.SObjectType, new List<SObjectField>{ Opportunity.Account.Id });
+
+    Account acc = new Account(Name = 'parent');
+    insert acc;
+
+    insert new Opportunity(AccountId = acc.Id, StageName = 'testing', CloseDate = System.today(), Name = 'Child');
+
+    Opportunity retrievedOpp = (Opportunity) repo.getAll()[0];
+    System.assertNotEquals(null, retrievedOpp.Account.Id);
+  }
+
+  private class OpportunityRepo extends Repository {
+    public OpportunityRepo() {
+      super(Opportunity.SObjectType, new List<SObjectField>{ Opportunity.Id }, new RepoFactoryMock());
+    }
   }
 
   private class ContactPointAddressRepo extends Repository {

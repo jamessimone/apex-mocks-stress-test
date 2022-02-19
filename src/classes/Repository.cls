@@ -30,6 +30,9 @@ public virtual without sharing class Repository implements IRepository {
     return this.performQuery(this.getSelectAndFrom());
   }
 
+  public void addParentFields(SObjectType parentType, List<SObjectField> parentFields) {
+  }
+
   protected virtual Set<String> addSelectFields() {
     Set<String> fieldStrings = new Set<String>{ 'Id' };
     for (SObjectField field : this.queryFields) {
