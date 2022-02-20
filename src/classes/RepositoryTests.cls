@@ -111,15 +111,35 @@ private class RepositoryTests {
   @IsTest
   static void parentFieldsAreSupported() {
     IRepository repo = new OpportunityRepo();
-    repo.addParentFields(Account.SObjectType, new List<SObjectField>{ Opportunity.Account.Id });
+    repo.addParentFields(new List<SObjectType>{ Account.SObjectType }, new List<SObjectField>{ Opportunity.Account.Id });
 
-    Account acc = new Account(Name = 'parent');
+    Account acc = new Account(Name = 'parent field');
     insert acc;
 
     insert new Opportunity(AccountId = acc.Id, StageName = 'testing', CloseDate = System.today(), Name = 'Child');
 
     Opportunity retrievedOpp = (Opportunity) repo.getAll()[0];
     System.assertNotEquals(null, retrievedOpp.Account.Id);
+  }
+
+  @IsTest
+  static void childFieldsAreSupported() {
+    Account acc = new Account(Name = 'parent');
+    insert acc;
+    Contact con = new Contact(AccountId = acc.Id, LastName = 'Child field');
+    insert con;
+
+    IRepository repo = new AccountRepo();
+    repo.addChildFields(Contact.SObjectType, new List<SObjectField>{ Contact.LastName });
+
+    acc = (Account) repo.getAll()[0];
+    System.assertEquals(con.LastName, acc.Contacts[0].LastName);
+  }
+
+  private class AccountRepo extends Repository {
+    public AccountRepo() {
+      super(Account.SObjectType, new List<SObjectField>{ Account.Id }, new RepoFactoryMock());
+    }
   }
 
   private class OpportunityRepo extends Repository {
