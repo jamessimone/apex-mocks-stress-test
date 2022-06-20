@@ -24,7 +24,6 @@ public virtual class TriggerHandler {
                 this.afterInsert(Trigger.newMap);
             }
             when AFTER_UPDATE {
-                System.debug('Made it here');
                 this.afterUpdate(Trigger.newMap, Trigger.oldMap);
             }
             when AFTER_DELETE {
