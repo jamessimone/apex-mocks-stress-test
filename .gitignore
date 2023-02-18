@@ -6,3 +6,5 @@ dmc_config.json
 yarn.lock
 .sfdx/
 .vscode/
+.localdevserver
+.sf

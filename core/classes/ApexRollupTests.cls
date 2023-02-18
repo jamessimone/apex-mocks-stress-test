@@ -1,0 +1,4 @@
+@IsTest
+private class ApexRollupTests {
+
+}

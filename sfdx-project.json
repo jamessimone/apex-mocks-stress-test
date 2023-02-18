@@ -2,10 +2,10 @@
   "packageDirectories": [
     {
       "path": "src",
-      "default": true,
-      "package": "ApexMocks",
-      "versionName": "0.1",
-      "versionNumber": "0.1.0.NEXT"
+      "default": true
+    },
+    {
+      "path": "core"
     }
   ],
   "namespace": "",
