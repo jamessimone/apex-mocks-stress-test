@@ -8,7 +8,7 @@ public class ApiRequestResolver {
     public ApiRequestResolver(RestRequest req) {
         this.ApiName = this.getApiName(req.requestURI);
         this.RequestBody = req.requestBody != null ? req.requestBody.toString() : '';
-        //taken straight outta the docs...
+        // taken straight outta the docs...
         this.RequestUrlBody = req.requestURI != null ? req.requestURI.substring(req.requestURI.lastIndexOf('/') + 1) : '';
     }
 

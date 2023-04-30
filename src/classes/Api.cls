@@ -47,12 +47,12 @@ global abstract class Api {
 
         public Handler getHandler(ApiRequestResolver resolver) {
             Type handlerType = Type.forName(Api.HANDLER_NAME + resolver.ApiName);
-            return handlerType != null ? (Api.Handler)handlerType.newInstance() : new Api.Handler();
+            return handlerType != null ? (Api.Handler) handlerType.newInstance() : new Api.Handler();
         }
     }
 
     public virtual class Handler {
-        //enforce zero argument constructor
+        // enforce zero argument constructor
         public Handler() { }
 
         public virtual Response doDelete(ApiRequestResolver resolver) { return getResponse(BASIC_RESPONSE); }
