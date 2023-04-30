@@ -1,5 +1,4 @@
 public class ApiHandlerAbandonedCart extends Api.Handler {
-
   public override Api.Response doPost(ApiRequestResolver resolver) {
     Api.Response res = new Api.Response('OK');
     res.Success = true;
@@ -7,15 +6,9 @@ public class ApiHandlerAbandonedCart extends Api.Handler {
   }
 
   public class Request {
-    public String email {
-      get;
-      set;
-    }
+    public String email { get; set; }
 
-    public String deviceId {
-      get;
-      set;
-    }
+    public String deviceId { get; set; }
 
     public Boolean isLikelyToConvert {
       get {
