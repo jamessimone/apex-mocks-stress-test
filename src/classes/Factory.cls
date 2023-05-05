@@ -1,5 +1,5 @@
 public virtual class Factory {
-  public RepoFactory repoFactory { get; private set; }
+  public RepoFactory repoFactory { get; protected set; }
 
   @TestVisible
   private static Factory factory;

@@ -2,22 +2,20 @@
 private class ApiHandlerAbandonedCartTest {
   @IsTest
   static void convertsLeadsFromRequestIntegration() {
-    // we can start with an integration test where a pre-existing lead actually exists
+    Factory.factory = new MockFactory.LeadConversion();
     Lead existingLead = new Lead(
       Company = 'E-comm',
       Email = '' + System.now().getTime() + '@convertsLeadsFromRequestIntegration.com',
       LastName = 'Integration Test'
     );
-    insert existingLead;
+    RepoFactoryMock.QueryResults.add(existingLead);
 
     ApiHandlerAbandonedCart.Request abandonedCartReq = new ApiHandlerAbandonedCart.Request();
     abandonedCartReq.email = existingLead.Email;
     sendAbandonedCartRequest(new List<ApiHandlerAbandonedCart.Request>{ abandonedCartReq });
 
-    Assert.isTrue(
-      [SELECT IsConverted FROM Lead WHERE Id = :existingLead.Id].IsConverted,
-      'Lead should have been converted'
-    );
+    Assert.areEqual(Query.equals(Lead.Email, new Set<String>{ existingLead.Email }), RepoFactoryMock.QueriesMade[0]);
+    Assert.isTrue(((Lead) DMLMock.Updated.Leads.firstOrDefault).IsConverted, 'Lead should have been converted');
   }
 
   private static void sendAbandonedCartRequest(List<ApiHandlerAbandonedCart.Request> requests) {

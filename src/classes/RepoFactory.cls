@@ -37,6 +37,25 @@ public virtual class RepoFactory {
     return new FieldLevelHistoryRepo(Profile.SObjectType, queryFields, this);
   }
 
+  public virtual IHistoryRepository getLeadRepo() {
+    return new FieldLevelHistoryRepo(
+      Schema.Lead.SObjectType,
+      new List<Schema.SObjectField>{
+        Lead.DoNotCall,
+        Lead.Email,
+        Lead.FirstName,
+        Lead.HasOptedOutOfEmail,
+        Lead.IsConverted,
+        Lead.LastName,
+        Lead.LeadSource,
+        Lead.Name,
+        Lead.OwnerId,
+        Lead.Phone
+      },
+      this
+    );
+  }
+
   public virtual IDML getDML() {
     return new DML();
   }

@@ -1,5 +1,6 @@
 public virtual class LeadConverter {
-  public static final Integer MAX_CONVERT_BATCH_SIZE = 100;
+  @TestVisible
+  private static Integer MAX_CONVERT_BATCH_SIZE = 100;
 
   private final IDML dml;
   private Builder builder;
@@ -15,7 +16,7 @@ public virtual class LeadConverter {
 
   public virtual class Builder {
     public virtual String getConvertedStatus(Lead lead) {
-      return 'Converted';
+      return 'Closed - Converted';
     }
 
     public virtual Boolean getShouldNotCreateOpportunity(Lead lead) {
@@ -40,14 +41,18 @@ public virtual class LeadConverter {
       List<Contact> contacts = new List<Contact>();
 
       for (Lead lead : leads) {
-        Account account = new Account(Description = lead.Description, AccountSource = lead.LeadSource);
+        Account account = new Account(
+          AccountSource = lead.LeadSource,
+          Name = (Lead.FirstName + ' ' + Lead.LastName).trim()
+        );
         accounts.add(account);
 
         Contact con = new Contact(
           Email = lead.Email,
+          HasOptedOutOfEmail = lead.HasOptedOutOfEmail,
+          LastName = lead.LastName,
           Phone = lead.Phone,
-          DoNotCall = lead.DoNotCall,
-          HasOptedOutOfEmail = lead.HasOptedOutOfEmail
+          DoNotCall = lead.DoNotCall
         );
         contacts.add(con);
       }
@@ -93,24 +98,17 @@ public virtual class LeadConverter {
     }
     List<Database.LeadConvertResult> leadConvertResults = new List<Database.LeadConvertResult>();
 
-    if (leads.size() > MAX_CONVERT_BATCH_SIZE) {
-      this.recursivelyFilterLeadsTillBelowMaxBatchConvertSize(leads, leadConvertResults);
-    } else {
-      List<Database.LeadConvert> leadConverts = this.builder.getLeadConverts(leads, this.dml);
-      leadConvertResults.addAll(Database.convertLead(leadConverts));
+    List<Lead> overflowLeads = new List<Lead>();
+
+    while (leads.size() > MAX_CONVERT_BATCH_SIZE) {
+      overflowLeads.add(leads.remove(0));
+    }
+    List<Database.LeadConvert> leadConverts = this.builder.getLeadConverts(leads, this.dml);
+    leadConvertResults.addAll(Database.convertLead(leadConverts));
+
+    if (overflowLeads.isEmpty() == false) {
+      leadConvertResults.addAll(this.convertLeads(overflowLeads));
     }
     return leadConvertResults;
-  }
-
-  private void recursivelyFilterLeadsTillBelowMaxBatchConvertSize(
-    List<Lead> leadsToConvert,
-    List<Database.LeadConvertResult> leadConvertResults
-  ) {
-    List<Lead> chunkedLeadsToConvert = new List<Lead>();
-    while (leadsToConvert.size() - MAX_CONVERT_BATCH_SIZE > 0) {
-      chunkedLeadsToConvert.add(leadsToConvert.remove(0));
-    }
-    leadConvertResults.addAll(this.convertLeads(leadsToConvert));
-    leadConvertResults.addAll(this.convertLeads(chunkedLeadsToConvert));
   }
 }
