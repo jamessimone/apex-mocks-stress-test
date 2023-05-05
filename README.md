@@ -1,4 +1,14 @@
-# ApexMocks Testing Library: Dynamic Extendable APIs
+# Joys Of Apex Post: Bulk Lead Conversion
+
+Most of the classes mentioned are going to be under the `core` folder - ones from prior posts are mentioned in the README below this list:
+
+- [ApiHandlerAbandonedCart](https://github.com/jamessimone/apex-mocks-stress-test/blob/bulk-lead-conversion/core/main/default/classes/ApiHandlerAbandonedCart.cls)
+- [ApiHandlerAbandonedCartTest](https://github.com/jamessimone/apex-mocks-stress-test/blob/bulk-lead-conversion/core/main/default/classes/ApiHandlerAbandonedCartTest.cls)
+- [LeadConverter](https://github.com/jamessimone/apex-mocks-stress-test/blob/bulk-lead-conversion/core/main/default/classes/LeadConverter.cls)
+- [LeadConverterTest](https://github.com/jamessimone/apex-mocks-stress-test/blob/bulk-lead-conversion/core/main/default/classes/LeadConverterTest.cls)
+- [MockFactory](https://github.com/jamessimone/apex-mocks-stress-test/blob/bulk-lead-conversion/core/main/default/classes/MockFactory.cls)
+
+## ApexMocks Testing Library: Dynamic Extendable APIs
 
 Hello! If you've arrived here via [Extendable APIs](https://www.jamessimone.net/blog/the-joys-of-apex/extendable-apis), you'll note that the Readme is slightly different from the Master branch of this repository. It's also branched off of the [Repository branch](https://github.com/jamessimone/apex-mocks-stress-test/tree/repository), whose Readme section is also below.
 
