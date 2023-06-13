@@ -1,13 +1,13 @@
 # ApexMocks Testing Library: Data Processor Queueable / Batchable Implementation
 
-Hi there. If you're reading this, it's likely you're here after reading the [Data Processor Batchable And Queueable Apex](https://www.jamessimone.net/blog/the-joys-of-apex/batchable-and-queueable-apex) post. I've linked the relevant classes from that post below, followed by the Readme for the Repository Pattern, which this post is based on:
+Hi there. If you're reading this, it's likely you're here after reading the [Data Processor Batchable And Queueable Apex](https://www.jamessimone.net/blog/joys-of-apex/batchable-and-queueable-apex/) post. I've linked the relevant classes from that post below, followed by the Readme for the Repository Pattern, which this post is based on:
 
-- [DataProcessor](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/DataProcessor.cls)
-- [DataProcessorTests](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/DataProcessorTests.cls)
-- [Factory](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/Factory.cls)
-- [QueryWrapper](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/QueryWrapper.cls)
-- [Repository](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/Repository.cls)
-- [Repository_Tests](https://github.com/jamessimone/apex-mocks-stress-test/blob/data-processor/src/classes/Repository_Tests.cls)
+- [DataProcessor](src/classes/DataProcessor.cls)
+- [DataProcessorTests](src/classes/DataProcessorTests.cls)
+- [Factory](src/classes/Factory.cls)
+- [QueryWrapper](src/classes/QueryWrapper.cls)
+- [Repository](src/classes/Repository.cls)
+- [Repository_Tests](src/classes/Repository_Tests.cls)
 
 The `DataProcessor` concept is based off the idea that it should be easier for consumers to hook into bulk Salesforce update paradigms, without having to delve into more advanced (or beginner? 🙄) topics like recursion. Performing bulk operations in Salesforce is now as easy as:
 
@@ -19,7 +19,7 @@ And now without further ado, the Readme from the Repository branch:
 
 ## ApexMocks Testing Library: The Repository Pattern
 
-Hello! If you've arrived here via [The Repository Pattern](https://www.jamessimone.net/blog/the-joys-of-apex/repository-pattern), you'll note that the Readme is slightly different from the Master branch of this repository. At its core, the Apex Mocks library uses 3 basic concepts to supercharge your Apex test results and empower you to easily do true unit testing within Apex:
+Hello! If you've arrived here via [The Repository Pattern](https://www.jamessimone.net/blog/joys-of-apex/repository-pattern), you'll note that the Readme is slightly different from the Master branch of this repository. At its core, the Apex Mocks library uses 3 basic concepts to supercharge your Apex test results and empower you to easily do true unit testing within Apex:
 
 - the use of IoC / Dependency Injection via the [Factory Pattern](https://www.jamessimone.net/blog/joys-of-apex/dependency-injection-factory-pattern)
 - the use of [DML (data manipulation language) mocking](https://www.jamessimone.net/blog/joys-of-apex/mocking-dml) for SObject creation / updating / upserting / deleting / undeleting
@@ -46,7 +46,7 @@ FFLib was [publicized with some fanfare way back in 2014](https://code4cloud.wor
 
 But is this claim ... true?
 
-It was suggested on Reddit following the publication of my second blog post on [The Joys Of Apex](https://jamessimone.net/blog/the-joys-of-apex) that I was "[doing it wrong](https://www.reddit.com/r/salesforce/comments/egrw71/the_joys_of_apex_mocking_dml_operations/)." I thought a lot about what [u/moose04](https://www.reddit.com/user/moose04/) was saying - perhaps it had been premature of me to dismiss what I saw as the same "creep spread" and Java boilerplate that I wasn't crazy about when I considered the merits of the built-in Salesforce stubbing methods. To be clear - it's still possible for that to be the case. That said, Salesforce is a platform that (I believe) thrives on the ability for developers to quickly test and iterate through theories. Why not use the very same platform we were discussing to stress test my implementation against the FFLib library?
+It was suggested on Reddit following the publication of my second blog post on [The Joys Of Apex](https://jamessimone.net/blog/joys-of-apex) that I was "[doing it wrong](https://www.reddit.com/r/salesforce/comments/egrw71/the_joys_of_apex_mocking_dml_operations/)." I thought a lot about what [u/moose04](https://www.reddit.com/user/moose04/) was saying - perhaps it had been premature of me to dismiss what I saw as the same "creep spread" and Java boilerplate that I wasn't crazy about when I considered the merits of the built-in Salesforce stubbing methods. To be clear - it's still possible for that to be the case. That said, Salesforce is a platform that (I believe) thrives on the ability for developers to quickly test and iterate through theories. Why not use the very same platform we were discussing to stress test my implementation against the FFLib library?
 
 ## My methodology
 
